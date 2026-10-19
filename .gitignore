@@ -3,3 +3,6 @@ go.work
 
 # Документация
 /Documentation
+
+# Бинарный файлы
+/bin
