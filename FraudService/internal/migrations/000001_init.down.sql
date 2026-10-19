@@ -1,0 +1,1 @@
+-- Rollback empty migration for FraudService
