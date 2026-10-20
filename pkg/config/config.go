@@ -2,9 +2,21 @@ package config
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/joho/godotenv"
 	"github.com/kelseyhightower/envconfig"
+)
+
+// Константы префиксов сервисов для работы с единым .env файлом.
+const (
+	ServiceUser         = "USER"
+	ServicePayment      = "PAYMENT"
+	ServiceFraud        = "FRAUD"
+	ServiceNotification = "NOTIFICATION"
 )
 
 // AppConfig содержит базовые метаданные приложения.
@@ -115,18 +127,75 @@ type Config struct {
 
 var loadedConfig *Config
 
-// Load загружает конфигурацию из переменных окружения без префикса.
+// findAndLoadEnv выполняет автопоиск .env файла, поднимаясь вверх от рабочей директории к корню проекта.
+func findAndLoadEnv() {
+	dir, err := os.Getwd()
+	if err != nil {
+		_ = godotenv.Load(".env")
+		return
+	}
+
+	for {
+		envPath := filepath.Join(dir, ".env")
+		if _, err := os.Stat(envPath); err == nil {
+			_ = godotenv.Load(envPath)
+			return
+		}
+
+		goWorkPath := filepath.Join(dir, "go.work")
+		if _, err := os.Stat(goWorkPath); err == nil {
+			// Нашли корень репозитория с go.work, пробуем найти .env здесь
+			_ = godotenv.Load(filepath.Join(dir, ".env"))
+			return
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+}
+
+// Load загружает общую конфигурацию из переменных окружения с автоподгрузкой корневого .env.
 func Load() (*Config, error) {
-	return LoadPrefix("")
+	return LoadService("")
 }
 
-// LoadPrefix загружает конфигурацию из переменных окружения с заданным префиксом.
+// LoadService загружает конфигурацию сервиса из единого .env файла.
+// Сначала загружаются общие параметры (DB_HOST, KAFKA_BROKERS, DB_USER и т.д.),
+// а затем применяются специфичные для сервиса переопределения с префиксом (например, USER_DB_PORT, USER_HTTP_PORT).
+func LoadService(servicePrefix string) (*Config, error) {
+	findAndLoadEnv()
+
+	if servicePrefix != "" {
+		normalizedPrefix := strings.ToUpper(strings.TrimSuffix(servicePrefix, "_")) + "_"
+		for _, env := range os.Environ() {
+			pair := strings.SplitN(env, "=", 2)
+			if len(pair) == 2 && strings.HasPrefix(strings.ToUpper(pair[0]), normalizedPrefix) {
+				baseKey := pair[0][len(normalizedPrefix):]
+				_ = os.Setenv(baseKey, pair[1])
+			}
+		}
+	}
+
+	var cfg Config
+	if err := envconfig.Process("", &cfg); err != nil {
+		return nil, fmt.Errorf("ошибка загрузки конфига: %w", err)
+	}
+
+	return &cfg, nil
+}
+
+// LoadPrefix является псевдонимом для LoadService для обратной совместимости.
 func LoadPrefix(prefix string) (*Config, error) {
-	return LoadCustom[Config](prefix)
+	return LoadService(prefix)
 }
 
-// LoadCustom — обобщённая функция для загрузки произвольной структуры конфигурации через envconfig.
+// LoadCustom — обобщённая функция для загрузки произвольной структуры конфигурации.
 func LoadCustom[T any](prefix string) (*T, error) {
+	findAndLoadEnv()
+
 	var cfg T
 	if err := envconfig.Process(prefix, &cfg); err != nil {
 		return nil, fmt.Errorf("ошибка загрузки конфига: %w", err)
@@ -145,6 +214,15 @@ func MustGet() *Config {
 	}
 
 	return loadedConfig
+}
+
+// MustLoadService возвращает конфигурацию сервиса или паникует при ошибке.
+func MustLoadService(servicePrefix string) *Config {
+	cfg, err := LoadService(servicePrefix)
+	if err != nil {
+		panic(err)
+	}
+	return cfg
 }
 
 // MustLoad загружает пользовательскую структуру конфигурации или паникует при ошибке.

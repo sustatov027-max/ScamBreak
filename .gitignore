@@ -1,9 +1,20 @@
 # Зависимоти проекта
 go.work
 go.sum
+go.work.sum
 
 # Документация
 /Documentation
 
 # Бинарный файлы
 /bin
+
+# Сертификаты и RSA-ключи
+certs/
+**/certs/
+*.pem
+
+# Переменные окружения
+.env
+.env.*
+!.env.example

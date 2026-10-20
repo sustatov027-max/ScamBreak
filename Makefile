@@ -160,4 +160,14 @@ else ifeq ($(SERVICE),NotificationService)
 	migrate -path $(NOTIFICATION_MIGRATIONS_PATH) -database "$(NOTIFICATION_DB_URL)" force $(VERSION)
 else
 	$(error Unknown SERVICE: $(SERVICE). Must be UserService, PaymentService, FraudService, or NotificationService)
-endif
+endif
+
+
+# ==========================================
+# RSA Key Generation
+# Usage: make generate-keys
+# ==========================================
+.PHONY: generate-keys
+
+generate-keys:
+	go run ./pkg/cmd/keygen -priv certs/jwt_private.pem -pub certs/jwt_public.pem -bits 2048
