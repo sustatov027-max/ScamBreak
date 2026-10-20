@@ -1,5 +1,6 @@
 # Зависимоти проекта
 go.work
+go.sum
 
 # Документация
 /Documentation
