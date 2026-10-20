@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package user_profile.v1;
+
+option go_package = "github.com/sustatov027-max/ScamBreak/pkg/api/user_profile/v1;user_profile_v1";
+
+import "google/protobuf/timestamp.proto";
+
+service UserProfile {
+  rpc CheckUser(CheckUserRequest) returns (CheckUserReply);          // вызывает Payment
+  rpc GetRiskProfile(GetRiskProfileRequest) returns (RiskProfileReply); // вызывает Fraud
+}
+
+message CheckUserRequest { string user_uid = 1; }
+message CheckUserReply   { bool exists = 1; bool is_active = 2; }
+
+message GetRiskProfileRequest { string user_uid = 1; }
+message RiskProfileReply {
+  bool   exists = 1;
+  bool   is_active = 2;
+  string country_code = 3;
+  string home_timezone = 4;
+  repeated string known_devices = 5;
+  repeated string known_networks = 6;
+  int32  payments_count = 7;
+  string avg_amount = 8;
+  string max_amount = 9;
+  google.protobuf.Timestamp last_payment_at = 10;
+  int32  usual_hour_from = 11;
+  int32  usual_hour_to = 12;
+}

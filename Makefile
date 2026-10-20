@@ -171,3 +171,15 @@ endif
 
 generate-keys:
 	go run ./pkg/cmd/keygen -priv certs/jwt_private.pem -pub certs/jwt_public.pem -bits 2048
+
+# ==========================================
+# Proto Generation
+# Usage: make proto
+# ==========================================
+.PHONY: proto
+proto:
+	protoc \
+		--proto_path=pkg/api/user_profile/v1 \
+		--go_out=pkg/api/user_profile/v1 --go_opt=paths=source_relative \
+		--go-grpc_out=pkg/api/user_profile/v1 --go-grpc_opt=paths=source_relative \
+		pkg/api/user_profile/v1/user_profile.proto
