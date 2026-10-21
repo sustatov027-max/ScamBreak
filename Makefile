@@ -1,3 +1,6 @@
+# =========================================
+# Build & Start Application
+# =========================================
 build:
 	go build -o bin/FraudService ./FraudService/cmd/service
 	go build -o bin/NotificationService ./NotificationService/cmd/service
