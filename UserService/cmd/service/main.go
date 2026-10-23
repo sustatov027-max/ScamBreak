@@ -72,8 +72,8 @@ func run() error {
 	_ = tokenIssuer // Внедряется в authService
 
 	// Слой репозиториев (Repository)
-	// userRepo := repository.NewUserRepository(db)
-	// profileRepo := repository.NewProfileRepository(db)
+	// userRepo := repository.NewUserRepository(pool)
+	// profileRepo := repository.NewProfileRepository(pool)
 
 	// Слой бизнес-логики (Service)
 	// authService := service.NewAuthService(userRepo, tokenIssuer, ...)
