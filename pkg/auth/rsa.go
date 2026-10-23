@@ -66,9 +66,41 @@ func ParseRSAPublicKeyFromPEM(pemBytes []byte) (*rsa.PublicKey, error) {
 	return key, nil
 }
 
+// resolveFilePath пытается найти относительный путь, поднимаясь вверх к корню проекта.
+func resolveFilePath(path string) string {
+	if filepath.IsAbs(path) {
+		return path
+	}
+	if _, err := os.Stat(path); err == nil {
+		return path
+	}
+
+	dir, err := os.Getwd()
+	if err != nil {
+		return path
+	}
+
+	cleanPath := filepath.Clean(path)
+	for {
+		candidate := filepath.Join(dir, cleanPath)
+		if _, err := os.Stat(candidate); err == nil {
+			return candidate
+		}
+
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			break
+		}
+		dir = parent
+	}
+
+	return path
+}
+
 // LoadRSAPrivateKeyFromFile загружает закрытый RSA ключ из файла.
 func LoadRSAPrivateKeyFromFile(path string) (*rsa.PrivateKey, error) {
-	data, err := os.ReadFile(path)
+	resolved := resolveFilePath(path)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось прочитать файл закрытого ключа %s: %w", path, err)
 	}
@@ -77,7 +109,8 @@ func LoadRSAPrivateKeyFromFile(path string) (*rsa.PrivateKey, error) {
 
 // LoadRSAPublicKeyFromFile загружает открытый RSA ключ из файла.
 func LoadRSAPublicKeyFromFile(path string) (*rsa.PublicKey, error) {
-	data, err := os.ReadFile(path)
+	resolved := resolveFilePath(path)
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось прочитать файл открытого ключа %s: %w", path, err)
 	}
