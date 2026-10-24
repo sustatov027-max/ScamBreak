@@ -10,10 +10,12 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sustatov027-max/ScamBreak/UserService/internal/handler"
+	"github.com/sustatov027-max/ScamBreak/UserService/internal/repository"
+	"github.com/sustatov027-max/ScamBreak/UserService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
-	"github.com/sustatov027-max/ScamBreak/pkg/ratelimit"
 	"github.com/sustatov027-max/ScamBreak/pkg/shutdown"
 )
 
@@ -68,26 +70,29 @@ func run() error {
 	}
 
 	// Утилиты
+	// JWT токен
 	tokenIssuer := auth.NewJWTIssuer(privKey, cfg.JWT.Expiration)
-	_ = tokenIssuer // Внедряется в authService
+
+	// Хэширование пароля
+	hasher := auth.NewArgon2Hasher()
 
 	// Слой репозиториев (Repository)
-	// userRepo := repository.NewUserRepository(pool)
-	// profileRepo := repository.NewProfileRepository(pool)
+	userRepo := repository.NewUserRepository(pool)
+	profileRepo := repository.NewProfileRepository(pool)
 
 	// Слой бизнес-логики (Service)
-	// authService := service.NewAuthService(userRepo, tokenIssuer, ...)
+	authService := service.NewAuthService(pool, userRepo, profileRepo, hasher, tokenIssuer)
 	// profileService := service.NewProfileService(profileRepo, ...)
 
 	// Слой HTTP-хэндлеров (Handler)
-	// authHandler := handler.NewAuthHandler(authService)
+	authHandler := handler.NewAuthHandler(authService)
 	// profileHandler := handler.NewProfileHandler(profileService)
 
 	// Роутинг
 	router := gin.New()
-	router.Use(gin.Recovery())
+	router.Use(gin.Recovery(), gin.Logger())
 
-	// Healthckeck с проверкой пула
+	// Healthcheck с проверкой пула
 	router.GET("/health", func(c *gin.Context) {
 		ctxCheck, cancelCheck := context.WithTimeout(c.Request.Context(), 2*time.Second)
 		defer cancelCheck()
@@ -106,16 +111,7 @@ func run() error {
 	})
 
 	// Публичные маршруты (Авторизация + Rate Limiting 5 запр/мин)
-	authGroup := router.Group("/api/auth")
-	authGroup.Use(ratelimit.AuthRateLimit())
-	{
-		authGroup.POST("/register", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"message": "register handler"})
-		})
-		authGroup.POST("/login", func(c *gin.Context) {
-			c.JSON(http.StatusOK, gin.H{"message": "login handler"})
-		})
-	}
+	handler.RegisterAuthRoutes(router, authHandler)
 
 	// Защищённые маршруты (JWT RS256 Middleware)
 	apiGroup := router.Group("/api")

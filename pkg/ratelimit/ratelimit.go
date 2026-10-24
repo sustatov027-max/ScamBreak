@@ -11,6 +11,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
+	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 )
 
 // KeyFunc определяет функцию для извлечения ключа ограничения (IP, user_uid, роль и т.д.).
@@ -143,6 +144,12 @@ func RateLimitMiddleware(limit rate.Limit, burst int, key KeyFunc) gin.HandlerFu
 			c.Header("X-RateLimit-Remaining", "0")
 			c.Header("X-RateLimit-Reset", strconv.FormatInt(resetUnix, 10))
 			c.Header("Retry-After", strconv.Itoa(retryAfter))
+
+			logger.Warn("превышен лимит запросов (rate limit exceeded)",
+				"key", clientKey,
+				"path", c.Request.URL.Path,
+				"retry_after", retryAfter,
+			)
 
 			c.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"error":       "превышен лимит запросов (rate limit exceeded)",

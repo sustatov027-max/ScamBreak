@@ -8,8 +8,10 @@ import (
 )
 
 var (
-	ErrUserNotFound      = errors.New("пользователь не найден")
-	ErrUserAlreadyExists = errors.New("пользователь с таким email уже существует")
+	ErrUserNotFound       = errors.New("пользователь не найден")
+	ErrUserAlreadyExists  = errors.New("пользователь с таким email уже существует")
+	ErrInvalidCredentials = errors.New("неверный email или пароль")
+	ErrUserInactive       = errors.New("учетная запись деактивирована")
 )
 
 // User представляет учетную запись пользователя в системе.
