@@ -101,3 +101,235 @@ func (p *ProfileRepository) Insert(ctx context.Context, profile *domain.UserProf
 
 	return nil
 }
+
+// FindByUserID ищет профиль пользователя по его ID
+func (p *ProfileRepository) FindByUserID(ctx context.Context, userID int64) (*domain.UserProfile, error) {
+	query := `
+		SELECT 
+			id, 
+			user_id,
+			full_name,
+			country_code,
+			phone,
+			home_timezone,
+			payments_count,
+			avg_amount,
+			max_amount,
+			last_payment_at,
+			usual_hour_from,
+			usual_hour_to,
+			updated_at
+		FROM user_profile
+		WHERE user_id = $1;
+	`
+
+	var profile domain.UserProfile
+	var phone *string
+	var lastPaymentAt *time.Time
+
+	err := p.db.QueryRow(ctx, query, userID).Scan(
+		&profile.ID,
+		&profile.UserID,
+		&profile.FullName,
+		&profile.CountryCode,
+		&phone,
+		&profile.HomeTimezone,
+		&profile.PaymentsCount,
+		&profile.AvgAmount,
+		&profile.MaxAmount,
+		&lastPaymentAt,
+		&profile.UsualHourFrom,
+		&profile.UsualHourTo,
+		&profile.UpdatedAt,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, domain.ErrProfileNotFound
+		}
+		return nil, fmt.Errorf("ошибка поиска профиля по id пользователя: %w", err)
+	}
+
+	if phone != nil {
+		profile.Phone = *phone
+	}
+	if lastPaymentAt != nil {
+		profile.LastPaymentAt = *lastPaymentAt
+	}
+
+	return &profile, nil
+}
+
+// Update обновляет профиль пользователя
+func (p *ProfileRepository) Update(ctx context.Context, profile *domain.UserProfile) error {
+	now := time.Now()
+	query := `
+		UPDATE user_profile
+		SET full_name = $1,
+		    country_code = $2,
+		    phone = NULLIF($3, ''),
+		    home_timezone = $4,
+		    updated_at = $5
+		WHERE (id = $6 AND $6 > 0) OR (user_id = $7 AND $7 > 0);
+	`
+
+	tag, err := p.db.Exec(ctx, query,
+		profile.FullName,
+		profile.CountryCode,
+		profile.Phone,
+		profile.HomeTimezone,
+		now,
+		profile.ID,
+		profile.UserID,
+	)
+	if err != nil {
+		return fmt.Errorf("ошибка обновления профиля пользователя: %w", err)
+	}
+
+	if tag.RowsAffected() == 0 {
+		return domain.ErrProfileNotFound
+	}
+
+	profile.UpdatedAt = now
+	return nil
+}
+
+// UpsertDevice добавляет устройство пользователя или обновляет его данные при повторном визите
+func (p *ProfileRepository) UpsertDevice(ctx context.Context, d *domain.Device) error {
+	now := time.Now()
+	if d.FirstSeenAt.IsZero() {
+		d.FirstSeenAt = now
+	}
+	if d.LastSeenAt.IsZero() {
+		d.LastSeenAt = now
+	}
+
+	query := `
+		INSERT INTO device (
+			profile_id,
+			device_uid,
+			device_type,
+			user_agent,
+			is_trusted,
+			first_seen_at,
+			last_seen_at
+		)
+		VALUES ($1, $2, $3, NULLIF($4, ''), $5, $6, $7)
+		ON CONFLICT (profile_id, device_uid) DO UPDATE
+		SET
+			device_type  = EXCLUDED.device_type,
+			user_agent   = COALESCE(EXCLUDED.user_agent, device.user_agent),
+			is_trusted   = device.is_trusted OR EXCLUDED.is_trusted,
+			last_seen_at = EXCLUDED.last_seen_at
+		RETURNING id, first_seen_at, last_seen_at;
+	`
+
+	err := p.db.QueryRow(ctx, query,
+		d.ProfileID,
+		d.DeviceUID,
+		d.DeviceType,
+		d.UserAgent,
+		d.IsTrusted,
+		d.FirstSeenAt,
+		d.LastSeenAt,
+	).Scan(&d.ID, &d.FirstSeenAt, &d.LastSeenAt)
+
+	if err != nil {
+		return fmt.Errorf("ошибка добавления устройства: %w", err)
+	}
+
+	return nil
+}
+
+// ListDevices отдаёт полный список всех зарегистрированных устройств профиля
+func (p *ProfileRepository) ListDevices(ctx context.Context, profileID int64) ([]domain.Device, error) {
+	query := `
+		SELECT 
+			id,
+			profile_id,
+			device_uid,
+			device_type,
+			user_agent,
+			is_trusted,
+			first_seen_at,
+			last_seen_at
+		FROM device
+		WHERE profile_id = $1
+		ORDER BY last_seen_at DESC;
+	`
+
+	rows, err := p.db.Query(ctx, query, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка запроса устройств: %w", err)
+	}
+	defer rows.Close()
+
+	devices := make([]domain.Device, 0)
+	for rows.Next() {
+		var device domain.Device
+		var userAgent *string
+		err := rows.Scan(
+			&device.ID,
+			&device.ProfileID,
+			&device.DeviceUID,
+			&device.DeviceType,
+			&userAgent,
+			&device.IsTrusted,
+			&device.FirstSeenAt,
+			&device.LastSeenAt,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("ошибка чтения устройства: %w", err)
+		}
+		if userAgent != nil {
+			device.UserAgent = *userAgent
+		}
+		devices = append(devices, device)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка при чтении устройств: %w", err)
+	}
+
+	return devices, nil
+}
+
+// UpsertNetwork сохраняет известную сеть пользователя без дублей по (profile_id, ip_address).
+func (p *ProfileRepository) UpsertNetwork(ctx context.Context, n *domain.KnownNetwork) error {
+	now := time.Now()
+	if n.FirstSeenAt.IsZero() {
+		n.FirstSeenAt = now
+	}
+	if n.LastSeenAt.IsZero() {
+		n.LastSeenAt = now
+	}
+
+	query := `
+		INSERT INTO known_network (
+			profile_id,
+			ip_address,
+			country_code,
+			first_seen_at,
+			last_seen_at
+		)
+		VALUES ($1, $2, $3, $4, $5)
+		ON CONFLICT (profile_id, ip_address) DO UPDATE
+		SET
+			country_code = EXCLUDED.country_code,
+			last_seen_at = EXCLUDED.last_seen_at
+		RETURNING id, first_seen_at, last_seen_at;
+	`
+
+	err := p.db.QueryRow(ctx, query,
+		n.ProfileID,
+		n.IPAddress,
+		n.CountryCode,
+		n.FirstSeenAt,
+		n.LastSeenAt,
+	).Scan(&n.ID, &n.FirstSeenAt, &n.LastSeenAt)
+
+	if err != nil {
+		return fmt.Errorf("ошибка upsert сети: %w", err)
+	}
+
+	return nil
+}

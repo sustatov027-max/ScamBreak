@@ -1,6 +1,14 @@
 package domain
 
-import "time"
+import (
+	"errors"
+	"time"
+)
+
+var (
+	ErrProfileNotFound      = errors.New("профиль пользователя не найден")
+	ErrProfileAlreadyExists = errors.New("профиль для данного пользователя уже существует")
+)
 
 type UserProfile struct {
 	ID            int64     `json:"id"`
