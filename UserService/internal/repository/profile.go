@@ -434,3 +434,45 @@ func (p *ProfileRepository) LoadRiskProfile(ctx context.Context, userUID uuid.UU
 	}
 	return rp, nil
 }
+
+// TryRecordEvent пытается сохранить event_id. Возвращает true, если событие новое.
+func (p *ProfileRepository) TryRecordEvent(ctx context.Context, eventID uuid.UUID) (bool, error) {
+	query := `
+		INSERT INTO processed_event (event_id)
+		VALUES ($1)
+		ON CONFLICT (event_id) DO NOTHING;
+	`
+	tag, err := p.db.Exec(ctx, query, eventID)
+	if err != nil {
+		return false, fmt.Errorf("ошибка проверки идемпотентности события: %w", err)
+	}
+	return tag.RowsAffected() > 0, nil
+}
+
+// UpdateActivity обновляет статистику активности профиля по факту совершенного платежа
+func (p *ProfileRepository) UpdateActivity(ctx context.Context, profileID int64, amount float64, at time.Time) error {
+	opHour := at.Hour()
+	query := `
+		UPDATE user_profile
+		SET 
+			avg_amount = (avg_amount * payments_count + $1) / (payments_count + 1),
+			payments_count = payments_count + 1,
+			max_amount = GREATEST(max_amount, $1),
+			last_payment_at = GREATEST(COALESCE(last_payment_at, $2), $2),
+			usual_hour_from = CASE 
+				WHEN payments_count = 0 THEN $3 
+				ELSE LEAST(usual_hour_from, $3) 
+			END,
+			usual_hour_to = CASE 
+				WHEN payments_count = 0 THEN $3 
+				ELSE GREATEST(usual_hour_to, $3) 
+			END,
+			updated_at = now()
+		WHERE id = $4;
+	`
+	_, err := p.db.Exec(ctx, query, amount, at, opHour, profileID)
+	if err != nil {
+		return fmt.Errorf("ошибка обновления активности профиля: %w", err)
+	}
+	return nil
+}

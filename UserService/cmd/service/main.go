@@ -11,6 +11,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sustatov027-max/ScamBreak/UserService/internal/consumer"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/service"
@@ -36,6 +37,10 @@ func main() {
 func run() error {
 	// Инициализация конфига
 	cfg := config.MustLoadService(config.ServiceUser)
+
+	// Создание контекста с возможностью отмены
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 
 	// Инициализация логгера
 	log := logger.Init(cfg.Log)
@@ -175,24 +180,54 @@ func run() error {
 		}
 	}()
 
+	// Подключение Kafka
+	// Инициализация сервиса
+	activityService := service.NewActivityService(userRepo, profileRepo)
+
+	// Инициализация консьюмера
+	analysisConsumer := consumer.NewAnalysisConsumer(
+		cfg.Kafka.Brokers,
+		"user-service-analysis",
+		"fraud.analysis.completed",
+		activityService,
+		log,
+	)
+
+	// Запуск консьюмера в отдельной горутине
+	go func() {
+		if err := analysisConsumer.Run(ctx); err != nil {
+			log.Error("ошибка consumer", logger.Err(err))
+		}
+	}()
+
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
-	// остановка gRPC-сервера
+	// LIFO: регистрируем от базовых инфраструктурных зависимостей к внешним серверам.
+	// Пул БД закрывается самым последним
+	sm.Register("postgres-pool", func(_ context.Context) error {
+		pool.Close()
+		return nil
+	})
+
+	// Остановка Kafka consumer
+	sm.Register("consumer", func(_ context.Context) error {
+		cancel()
+		return analysisConsumer.Close()
+	})
+
+	// Остановка gRPC-сервера
 	sm.Register("gRPC-server", func(_ context.Context) error {
 		grpcServer.GracefulStop()
 		return nil
 	})
 
-	// LIFO: сначала перестаём принимать новые HTTP запросы, потом закрываем соединение с БД
-	sm.Register("postgres-pool", func(_ context.Context) error {
-		pool.Close()
-		return nil
-	})
+	// Остановка HTTP-сервера (выполнится первой в LIFO)
 	sm.RegisterServer(srv)
 
 	// Ожидание SIGINT / SIGTERM от ОС
 	if err := sm.Wait(); err != nil {
+
 		return fmt.Errorf("ошибка graceful shutdown: %w", err)
 	}
 	log.Info("UserService корректно остановлен")
