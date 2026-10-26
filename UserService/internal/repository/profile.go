@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/domain"
@@ -332,4 +333,104 @@ func (p *ProfileRepository) UpsertNetwork(ctx context.Context, n *domain.KnownNe
 	}
 
 	return nil
+}
+
+func (p *ProfileRepository) LoadRiskProfile(ctx context.Context, userUID uuid.UUID) (*domain.RiskProfile, error) {
+	// Загрузка пользователя и профиля
+	query := `
+		SELECT 
+			u.is_active,
+			COALESCE(p.id, 0),
+			COALESCE(p.country_code, 'RU'),
+			COALESCE(p.home_timezone, 'UTC'),
+			COALESCE(p.payments_count, 0),
+			COALESCE(p.avg_amount, 0.00),
+			COALESCE(p.max_amount, 0.00),
+			p.last_payment_at,
+			COALESCE(p.usual_hour_from, 0),
+			COALESCE(p.usual_hour_to, 23)
+		FROM "user" u
+		LEFT JOIN user_profile p ON p.user_id = u.id
+		WHERE u.uid = $1;
+	`
+
+	var (
+		isActive      bool
+		profileID     int64
+		countryCode   string
+		homeTimezone  string
+		paymentsCount int32
+		avgAmount     float64
+		maxAmount     float64
+		lastPaymentAt *time.Time
+		usualHourFrom int32
+		usualHourTo   int32
+	)
+
+	err := p.db.QueryRow(ctx, query, userUID).Scan(
+		&isActive,
+		&profileID,
+		&countryCode,
+		&homeTimezone,
+		&paymentsCount,
+		&avgAmount,
+		&maxAmount,
+		&lastPaymentAt,
+		&usualHourFrom,
+		&usualHourTo,
+	)
+
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return &domain.RiskProfile{Exists: false}, nil
+		}
+		return nil, fmt.Errorf("ошибка загрузки профиля: %w", err)
+	}
+
+	rp := &domain.RiskProfile{
+		Exists:        true,
+		IsActive:      isActive,
+		CountryCode:   countryCode,
+		HomeTimezone:  homeTimezone,
+		KnownDevices:  make([]string, 0),
+		KnownNetworks: make([]string, 0),
+		PaymentsCount: paymentsCount,
+		AvgAmount:     avgAmount,
+		MaxAmount:     maxAmount,
+		LastPaymentAt: lastPaymentAt,
+		UsualHourFrom: usualHourFrom,
+		UsualHourTo:   usualHourTo,
+	}
+
+	if profileID == 0 {
+		return rp, nil
+	}
+
+	// Загрузка списка известных устройств (device_uid)
+	deviceRows, err := p.db.Query(ctx, `SELECT device_uid FROM device WHERE profile_id = $1 ORDER BY last_seen_at DESC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка выборки устройств: %w", err)
+	}
+	defer deviceRows.Close()
+	for deviceRows.Next() {
+		var dUID string
+		if err := deviceRows.Scan(&dUID); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования device_uid: %w", err)
+		}
+		rp.KnownDevices = append(rp.KnownDevices, dUID)
+	}
+	// Загрузка списка известных сетей (ip_address)
+	networkRows, err := p.db.Query(ctx, `SELECT host(ip_address) FROM known_network WHERE profile_id = $1 ORDER BY last_seen_at DESC`, profileID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка выборки сетей: %w", err)
+	}
+	defer networkRows.Close()
+	for networkRows.Next() {
+		var ip string
+		if err := networkRows.Scan(&ip); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования ip: %w", err)
+		}
+		rp.KnownNetworks = append(rp.KnownNetworks, ip)
+	}
+	return rp, nil
 }

@@ -25,3 +25,19 @@ type UserProfile struct {
 	UsualHourTo   int8      `json:"usual_hour_to"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
+
+// RiskProfile содержит агрегированную информацию о пользователе для FraudService
+type RiskProfile struct {
+	Exists        bool
+	IsActive      bool
+	CountryCode   string
+	HomeTimezone  string
+	KnownDevices  []string // список device_uid
+	KnownNetworks []string // список IP-адресов
+	PaymentsCount int32
+	AvgAmount     float64
+	MaxAmount     float64
+	LastPaymentAt *time.Time // nil, если платежей еще не было
+	UsualHourFrom int32
+	UsualHourTo   int32
+}

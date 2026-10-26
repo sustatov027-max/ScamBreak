@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"time"
@@ -13,10 +14,15 @@ import (
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/UserService/internal/service"
+	user_profile_v1 "github.com/sustatov027-max/ScamBreak/pkg/api/user_profile/v1"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/shutdown"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
+
+	grpc_handler "github.com/sustatov027-max/ScamBreak/UserService/internal/api/grpc"
 )
 
 func main() {
@@ -145,8 +151,38 @@ func run() error {
 		}
 	}()
 
+	// Подключение gRPC сервера
+	// Открываем TCP-порт для gRPC
+	grpcAddr := cfg.GRPC.Addr()
+	grpcLis, err := net.Listen("tcp", grpcAddr)
+	if err != nil {
+		return fmt.Errorf("ошибка открытия tcp-порта для gRPC: %w", err)
+	}
+
+	// Создание gRPC сервера и регистрация ProfileGRPCServer
+	grpcServer := grpc.NewServer()
+	grpcProfileServer := grpc_handler.NewProfileGRPCServer(userRepo, profileRepo)
+	user_profile_v1.RegisterUserProfileServer(grpcServer, grpcProfileServer)
+
+	// Reflection
+	reflection.Register(grpcServer)
+
+	// Запуск gRPC-сервера в отдельной горутине
+	go func() {
+		log.Info("gRPC сервер запущен", "addr", grpcAddr)
+		if err := grpcServer.Serve(grpcLis); err != nil && !errors.Is(err, grpc.ErrServerStopped) {
+			log.Error("ошибка работы gRPC сервера", logger.Err(err))
+		}
+	}()
+
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
+
+	// остановка gRPC-сервера
+	sm.Register("gRPC-server", func(_ context.Context) error {
+		grpcServer.GracefulStop()
+		return nil
+	})
 
 	// LIFO: сначала перестаём принимать новые HTTP запросы, потом закрываем соединение с БД
 	sm.Register("postgres-pool", func(_ context.Context) error {
