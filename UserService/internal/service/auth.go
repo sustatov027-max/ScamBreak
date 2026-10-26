@@ -19,10 +19,6 @@ type UserRepository interface {
 	FindByUID(ctx context.Context, uid uuid.UUID) (*domain.User, error)
 }
 
-type ProfileRepository interface {
-	Insert(ctx context.Context, p *domain.UserProfile) error
-}
-
 type AuthService struct {
 	db       *pgxpool.Pool
 	users    UserRepository

@@ -82,11 +82,11 @@ func run() error {
 
 	// Слой бизнес-логики (Service)
 	authService := service.NewAuthService(pool, userRepo, profileRepo, hasher, tokenIssuer)
-	// profileService := service.NewProfileService(profileRepo, ...)
+	profileService := service.NewProfileService(userRepo, profileRepo)
 
 	// Слой HTTP-хэндлеров (Handler)
 	authHandler := handler.NewAuthHandler(authService)
-	// profileHandler := handler.NewProfileHandler(profileService)
+	profileHandler := handler.NewProfileHandler(profileService)
 
 	// Роутинг
 	router := gin.New()
@@ -116,22 +116,18 @@ func run() error {
 	// Защищённые маршруты (JWT RS256 Middleware)
 	apiGroup := router.Group("/api")
 	apiGroup.Use(auth.JWTMiddleware(pubKey))
+
+	// Группа администратора (роль Admin)
+	adminGroup := apiGroup.Group("/admin")
+	adminGroup.Use(auth.RequireRole(auth.RoleAdmin))
 	{
-		// Доступно пользователям
-		apiGroup.GET("/profile/me", func(c *gin.Context) {
-			userUID, _ := auth.GetUserUID(c)
-			role, _ := auth.GetRole(c)
-			c.JSON(http.StatusOK, gin.H{"uid": userUID, "role": role})
+		adminGroup.GET("/users", func(c *gin.Context) {
+			c.JSON(http.StatusOK, gin.H{"message": "admin only users list"})
 		})
-		// Доступно только администраторам
-		adminGroup := apiGroup.Group("/admin")
-		adminGroup.Use(auth.RequireRole(auth.RoleAdmin))
-		{
-			adminGroup.GET("/users", func(c *gin.Context) {
-				c.JSON(http.StatusOK, gin.H{"message": "admin only users list"})
-			})
-		}
 	}
+
+	// Регистрация маршрутов профиля (пользовательские и административные)
+	handler.RegisterProfileRoutes(apiGroup, adminGroup, profileHandler)
 
 	// Запуск HTTP сервера
 	srv := &http.Server{
