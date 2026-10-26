@@ -66,13 +66,13 @@ func (s *ActivityService) ApplyAnalysisResult(ctx context.Context, e domain.Frau
 		if countryCode == "" {
 			countryCode = "RU"
 		}
-		netw := &domain.KnownNetwork{
+		network := &domain.KnownNetwork{
 			ProfileID:   profile.ID,
 			IPAddress:   e.IPAddress,
 			CountryCode: countryCode,
 			LastSeenAt:  e.OperationTime,
 		}
-		_ = s.profiles.UpsertNetwork(ctx, netw)
+		_ = s.profiles.UpsertNetwork(ctx, network)
 	}
 
 	return nil
