@@ -1,1 +1,2 @@
--- Rollback empty migration for PaymentService
+DROP TABLE IF EXISTS payment_status_history;
+DROP TABLE IF EXISTS payment;
