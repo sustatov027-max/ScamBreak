@@ -99,9 +99,8 @@ func run() error {
 	authHandler := handler.NewAuthHandler(authService)
 	profileHandler := handler.NewProfileHandler(profileService)
 
-	// Роутинг
-	router := gin.New()
-	router.Use(gin.Recovery(), gin.Logger())
+	// Роутер
+	router := gin.Default()
 
 	// Healthcheck с проверкой пула
 	router.GET("/health", func(c *gin.Context) {
