@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/handler"
@@ -130,13 +129,6 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
 	}
-
-	uidAdmin, err := uuid.Parse("9d122bdd-5180-4c65-aa67-8c4076d4cc40")
-	if err != nil {
-		return fmt.Errorf("ошибка парсинга uid")
-	}
-	exists, err := userClient.CheckUser(context.Background(), uidAdmin)
-	fmt.Println(exists)
 
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
