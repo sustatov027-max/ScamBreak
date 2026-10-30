@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/handler"
+	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
@@ -63,6 +64,8 @@ func run() error {
 	}
 
 	// Слой репозиториев (Repository)
+	paymentRepo := repository.NewPaymentRepository(pool)
+	_ = paymentRepo
 
 	// Слой бизнес-логики (Service)
 
