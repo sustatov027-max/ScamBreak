@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
@@ -123,6 +125,19 @@ func run() error {
 		}
 	}()
 
+	// Подключение gRPC клиента
+	userClient, err := client.NewUserGRPCClient(cfg.GRPC.UserServiceURL, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
+	}
+
+	uidAdmin, err := uuid.Parse("9d122bdd-5180-4c65-aa67-8c4076d4cc40")
+	if err != nil {
+		return fmt.Errorf("ошибка парсинга uid")
+	}
+	exists, err := userClient.CheckUser(context.Background(), uidAdmin)
+	fmt.Println(exists)
+
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
@@ -130,6 +145,16 @@ func run() error {
 	// Пул БД закрывается самым последним
 	sm.Register("postgres-pool", func(_ context.Context) error {
 		pool.Close()
+		return nil
+	})
+
+	// Остановка gRPC client
+	sm.Register("gRPC-client", func(_ context.Context) error {
+		err := userClient.Close()
+		if err != nil {
+			return fmt.Errorf("ошибка закрытия соединения gRPC клиента: %w", err)
+		}
+
 		return nil
 	})
 

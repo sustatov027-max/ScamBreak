@@ -12,6 +12,10 @@ var (
 
 	// ErrPaymentAlreadyExists обработка нарушения уникального индекса idx_payment_user_idempotency
 	ErrPaymentAlreadyExists = errors.New("платеж с таким ключом идемпотентности уже существует")
+
+	ErrUserNotFound           = errors.New("пользователь не найден")                   // Когда exists == false
+	ErrUserInactive           = errors.New("пользователь деактивирован")               // Когда is_active == false
+	ErrUserServiceUnavailable = errors.New("сервис пользователей временно недоступен") // Падение по таймауту или сервис недоступен
 )
 
 type PaymentStatus string
