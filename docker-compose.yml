@@ -139,6 +139,21 @@ services:
       /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --list
       "
 
+# Веб-интерфейс Kafka UI (просмотр топиков, сообщений, партиций и потребителей)
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: scambreak-kafka-ui
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      DYNAMIC_CONFIG_ENABLED: "true"
+      KAFKA_CLUSTERS_0_NAME: scambreak-kafka
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:29092
+    depends_on:
+      kafka:
+        condition: service_healthy
+
 volumes:
   postgres_user_data:
   postgres_payment_data:
