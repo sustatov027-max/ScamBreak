@@ -11,6 +11,7 @@ import (
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
+	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 	"github.com/sustatov027-max/ScamBreak/pkg/ratelimit"
 )
 
@@ -35,8 +36,8 @@ func RegisterPaymentRoutes(
 	payments := apiGroup.Group("/payments")
 	{
 		payments.POST("", ratelimit.PaymentRateLimit(), RequireIdempotencyKey(), h.CreatePayment)
-		payments.GET("", h.ListPayments)
-		payments.GET("/:uid", h.GetPayment)
+		payments.GET("", ratelimit.UserRateLimit(), h.ListPayments)
+		payments.GET("/:uid", ratelimit.UserRateLimit(), h.GetPayment)
 	}
 
 	// Административные маршруты (JWT + RoleAdmin)
@@ -137,11 +138,73 @@ func (h *PaymentHandler) handleCreateError(c *gin.Context, err error) {
 	}
 }
 
-// Заглушки для остальных методов
-func (h *PaymentHandler) ListPayments(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"payments": []any{}})
+func (h *PaymentHandler) GetPayment(c *gin.Context) {
+	uid, err := uuid.Parse(c.Param("uid"))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "некорректный uid платежа"})
+		return
+	}
+
+	// Извлечение данных из токена
+	requesterUID, ok := auth.GetUserUID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+	role, _ := auth.GetRole(c)
+	isAdmin := (role == auth.RoleAdmin)
+
+	res, err := h.service.Get(c.Request.Context(), uid, requesterUID, isAdmin)
+	if err != nil {
+		if errors.Is(err, domain.ErrPaymentNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})
+			return
+		}
+		if errors.Is(err, domain.ErrForbidden) {
+			c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+			return
+		}
+		logger.Error("ошибка при получении платежа", logger.Err(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "внутренняя ошибка сервера"})
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
 }
-func (h *PaymentHandler) GetPayment(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"status": "stub"}) }
+
+func (h *PaymentHandler) ListPayments(c *gin.Context) {
+	userUID, ok := auth.GetUserUID(c)
+	if !ok {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "пользователь не авторизован"})
+		return
+	}
+
+	pag, err := pagination.Parse(c)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	filter := dto.PaymentFilter{}
+	if err := c.ShouldBindQuery(&filter); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат параметров фильтрации: " + err.Error()})
+		return
+	}
+
+	filter.Page = pag.Page
+	filter.PageSize = pag.PageSize
+
+	res, err := h.service.ListByUser(c.Request.Context(), userUID, filter)
+	if err != nil {
+		logger.Error("ошибка при получении списка платежей", logger.Err(err))
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "внутренняя ошибка сервера"})
+		return
+	}
+
+	c.JSON(http.StatusOK, res)
+}
+
+// Заглушки для остальных методов
 func (h *PaymentHandler) GetPaymentDetails(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "stub"})
 }

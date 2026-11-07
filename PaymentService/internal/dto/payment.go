@@ -30,3 +30,13 @@ type PaymentResponse struct {
 	CreatedAt     time.Time            `json:"created_at"`
 	AnalyzedAt    *time.Time           `json:"analyzed_at"`
 }
+
+type PaymentFilter struct {
+	UserUID   *uuid.UUID `form:"user_uid"`
+	From      *time.Time `form:"from" time_format:"2006-01-02T15:04:05Z07:00"`
+	To        *time.Time `form:"to" time_format:"2006-01-02T15:04:05Z07:00"`
+	RiskLevel *string    `form:"risk_level"`
+	Status    *string    `form:"status"`
+	Page      int        `form:"page"`      // по умолчанию 1
+	PageSize  int        `form:"page_size"` // по умолчанию 20, максимум 100
+}

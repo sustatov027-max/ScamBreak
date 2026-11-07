@@ -21,6 +21,8 @@ var (
 	ErrIdempotencyKeyMissing = errors.New("заголовок Idempotency-Key обязателен")
 	ErrIdempotencyConflict   = errors.New("ключ идемпотентности уже использован с другими параметрами платежа")
 	ErrUserUIDMismatch       = errors.New("переданный user_uid не совпадает с данными токена")
+
+	ErrForbidden = errors.New("нет прав доступа к данному ресурсу")
 )
 
 type PaymentStatus string

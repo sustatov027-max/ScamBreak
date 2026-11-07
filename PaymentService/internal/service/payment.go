@@ -11,6 +11,7 @@ import (
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/dto"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
+	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 )
 
 type PaymentService struct {
@@ -133,4 +134,64 @@ func toPaymentResponse(p *domain.Payment) *dto.PaymentResponse {
 	}
 
 	return resp
+}
+
+// Get возвращает информацию о платеже по UID с проверкой прав доступа.
+// Если пользователь не является администратором и пытается запросить чужой платёж, возвращается domain.ErrForbidden.
+func (s *PaymentService) Get(
+	ctx context.Context,
+	uid, requesterUID uuid.UUID,
+	isAdmin bool,
+) (*dto.PaymentResponse, error) {
+	payment, err := s.payments.FindByUID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, domain.ErrPaymentNotFound) {
+			return nil, domain.ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("ошибка поиска платежа: %w", err)
+	}
+
+	// Проверка прав доступа: только владелец или администратор
+	if !isAdmin && payment.UserUID != requesterUID {
+		return nil, domain.ErrForbidden
+	}
+
+	return toPaymentResponse(payment), nil
+}
+
+// Find выполняет поиск платежей по динамическому фильтру с пагинацией.
+func (s *PaymentService) Find(
+	ctx context.Context,
+	f dto.PaymentFilter,
+) (*pagination.PagedResponse[dto.PaymentResponse], error) {
+	if f.Page < 1 {
+		f.Page = pagination.DefaultPage
+	}
+	if f.PageSize <= 0 {
+		f.PageSize = pagination.DefaultPageSize
+	} else if f.PageSize > pagination.MaxPageSize {
+		f.PageSize = pagination.MaxPageSize
+	}
+
+	payments, total, err := s.payments.Find(ctx, f)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка поиска платежей: %w", err)
+	}
+
+	items := make([]dto.PaymentResponse, len(payments))
+	for i := range payments {
+		items[i] = *toPaymentResponse(&payments[i])
+	}
+
+	return new(pagination.NewPagedResponse(items, total, f.Page, f.PageSize)), nil
+}
+
+// ListByUser возвращает список платежей конкретного пользователя с пагинацией и динамической фильтрацией.
+func (s *PaymentService) ListByUser(
+	ctx context.Context,
+	userUID uuid.UUID,
+	f dto.PaymentFilter,
+) (*pagination.PagedResponse[dto.PaymentResponse], error) {
+	f.UserUID = &userUID
+	return s.Find(ctx, f)
 }
