@@ -16,6 +16,11 @@ var (
 	ErrUserNotFound           = errors.New("пользователь не найден")                   // Когда exists == false
 	ErrUserInactive           = errors.New("пользователь деактивирован")               // Когда is_active == false
 	ErrUserServiceUnavailable = errors.New("сервис пользователей временно недоступен") // Падение по таймауту или сервис недоступен
+
+	// Ошибки идемпотентности
+	ErrIdempotencyKeyMissing = errors.New("заголовок Idempotency-Key обязателен")
+	ErrIdempotencyConflict   = errors.New("ключ идемпотентности уже использован с другими параметрами платежа")
+	ErrUserUIDMismatch       = errors.New("переданный user_uid не совпадает с данными токена")
 )
 
 type PaymentStatus string

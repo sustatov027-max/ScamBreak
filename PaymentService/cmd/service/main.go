@@ -13,6 +13,7 @@ import (
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
+	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
@@ -66,11 +67,21 @@ func run() error {
 
 	// Слой репозиториев (Repository)
 	paymentRepo := repository.NewPaymentRepository(pool)
-	_ = paymentRepo
+
+	// Подключение gRPC клиента UserService
+	userClient, err := client.NewUserGRPCClient(cfg.GRPC.UserServiceURL, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
+	}
+
+	// Инициализация publisher Kafka
+	publisher := client.NewKafkaPublisher(cfg.Kafka.Brokers)
 
 	// Слой бизнес-логики (Service)
+	paymentService := service.NewPaymentService(paymentRepo, userClient, publisher)
 
 	// Слой HTTP-хэндлеров (Handler)
+	paymentHandler := handler.NewPaymentHandler(paymentService)
 
 	// Роутер
 	router := gin.Default()
@@ -105,7 +116,6 @@ func run() error {
 	adminGroup.Use(auth.RequireRole(auth.RoleAdmin))
 
 	// Регистрация маршрутов платежей
-	paymentHandler := handler.NewPaymentHandler()
 	handler.RegisterPaymentRoutes(apiGroup, adminGroup, externalGroup, paymentHandler)
 
 	// Запуск HTTP сервера
@@ -124,15 +134,6 @@ func run() error {
 		}
 	}()
 
-	// Подключение gRPC клиента
-	userClient, err := client.NewUserGRPCClient(cfg.GRPC.UserServiceURL, 3*time.Second)
-	if err != nil {
-		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
-	}
-
-	// Инициализация publisher
-	publisher := client.NewKafkaPublisher(cfg.Kafka.Brokers)
-
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
@@ -143,6 +144,7 @@ func run() error {
 		return nil
 	})
 
+	// Остановка kafka-publisher
 	sm.Register("kafka-publisher", func(_ context.Context) error {
 		return publisher.Close()
 	})
