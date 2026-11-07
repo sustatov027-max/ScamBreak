@@ -130,6 +130,9 @@ func run() error {
 		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
 	}
 
+	// Инициализация publisher
+	publisher := client.NewKafkaPublisher(cfg.Kafka.Brokers)
+
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
@@ -138,6 +141,10 @@ func run() error {
 	sm.Register("postgres-pool", func(_ context.Context) error {
 		pool.Close()
 		return nil
+	})
+
+	sm.Register("kafka-publisher", func(_ context.Context) error {
+		return publisher.Close()
 	})
 
 	// Остановка gRPC client
