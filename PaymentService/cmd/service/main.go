@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
+	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/consumer"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
@@ -79,6 +80,7 @@ func run() error {
 
 	// Слой бизнес-логики (Service)
 	paymentService := service.NewPaymentService(paymentRepo, userClient, publisher)
+	statusService := service.NewStatusService(paymentRepo, publisher)
 
 	// Слой HTTP-хэндлеров (Handler)
 	paymentHandler := handler.NewPaymentHandler(paymentService)
@@ -134,6 +136,24 @@ func run() error {
 		}
 	}()
 
+	// Инициализация consumer Kafka
+	fraudConsumer := consumer.NewFraudResultConsumer(
+		cfg.Kafka.Brokers,
+		"payment-status-service",
+		"fraud.analysis.completed",
+		statusService,
+		log,
+	)
+
+	// Запуск consumer в отдельной горутине
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+	go func() {
+		if err := fraudConsumer.Run(consumerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("ошибка в работе FraudResultConsumer", logger.Err(err))
+		}
+	}()
+
 	// Graceful Shutdown
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
@@ -142,6 +162,12 @@ func run() error {
 	sm.Register("postgres-pool", func(_ context.Context) error {
 		pool.Close()
 		return nil
+	})
+
+	// Остановка kafka-consumer
+	sm.Register("fraud-consumer", func(_ context.Context) error {
+		cancelConsumer()
+		return fraudConsumer.Close()
 	})
 
 	// Остановка kafka-publisher

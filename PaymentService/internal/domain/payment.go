@@ -83,3 +83,39 @@ type PaymentCreatedEvent struct {
 	IPAddress     string    `json:"ip_address"`
 	CreatedAt     time.Time `json:"created_at"`
 }
+
+// FraudAnalysisCompletedEvent входящее событие из топика fraud.analysis.completed
+type FraudAnalysisCompletedEvent struct {
+	EventID       uuid.UUID `json:"event_id"`
+	PaymentUID    uuid.UUID `json:"payment_uid"`
+	UserUID       uuid.UUID `json:"user_uid"`
+	Amount        float64   `json:"amount"`
+	OperationTime time.Time `json:"operation_time"`
+	DeviceUID     string    `json:"device_uid"`
+	IPAddress     string    `json:"ip_address"`
+	RiskScore     int       `json:"risk_score"`
+	RiskLevel     RiskLevel `json:"risk_level"`
+	Decision      string    `json:"decision"`
+	AnalyzedAt    time.Time `json:"analyzed_at"`
+}
+
+// PaymentStatusChangedEvent исходящее событие в топик payment.status-changed
+type PaymentStatusChangedEvent struct {
+	EventID    uuid.UUID     `json:"event_id"`
+	PaymentUID uuid.UUID     `json:"payment_uid"`
+	UserUID    uuid.UUID     `json:"user_uid"`
+	OldStatus  PaymentStatus `json:"old_status"`
+	NewStatus  PaymentStatus `json:"new_status"`
+	RiskLevel  RiskLevel     `json:"risk_level"`
+	ChangedAt  time.Time     `json:"changed_at"`
+}
+
+// PaymentStatusHistory сущность записи истории изменения статусов
+type PaymentStatusHistory struct {
+	ID        int64         `json:"id"`
+	PaymentID int64         `json:"payment_id"`
+	OldStatus PaymentStatus `json:"old_status"`
+	NewStatus PaymentStatus `json:"new_status"`
+	ChangedAt time.Time     `json:"changed_at"`
+	Reason    string        `json:"reason"`
+}

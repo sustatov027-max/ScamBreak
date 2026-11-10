@@ -326,3 +326,91 @@ func (r *PaymentRepository) Find(ctx context.Context, f dto.PaymentFilter) ([]do
 
 	return payments, total, nil
 }
+
+// ApplyAnalysis выполняет атомарное обновление статуса платежа и запись в историю в одной транзакции
+func (r *PaymentRepository) ApplyAnalysis(
+	ctx context.Context,
+	uid uuid.UUID,
+	score int,
+	level domain.RiskLevel,
+	status domain.PaymentStatus,
+) (old domain.PaymentStatus, err error) {
+	// Открытие транзакции
+	tx, err := r.db.Begin(ctx)
+	if err != nil {
+		return "", fmt.Errorf("ошибка открытия транзакции: %w", err)
+	}
+
+	defer tx.Rollback(ctx)
+
+	// Блокируем строку платежа (FOR UPDATE) и считываем текущее значение
+	var (
+		paymentID int64
+		oldStatus domain.PaymentStatus
+	)
+
+	queryLock := `
+		SELECT id, status
+		FROM payment
+		WHERE uid = $1
+		FOR UPDATE;
+	`
+
+	err = tx.QueryRow(ctx, queryLock, uid).Scan(&paymentID, &oldStatus)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", domain.ErrPaymentNotFound
+		}
+		return "", fmt.Errorf("ошибка блокировки и чтения платежа: %w", err)
+	}
+
+	// Проверка идемпотентности
+	// Если платеж уже не в статусе PENDING, то не перезаписываем статус и не плодим дубликаты записей в истории
+	if oldStatus != domain.PaymentStatusPending {
+		// Транзакция завершается без изменений и возвращается текущий статус
+		if err := tx.Commit(ctx); err != nil {
+			return "", fmt.Errorf("ошибка фиксации транзакции: %w", err)
+		}
+		return oldStatus, nil
+	}
+
+	now := time.Now().UTC()
+
+	// Обновляем статус, скоринг риска и время завершений анализа в таблице payment
+	queryUpdate := `
+		UPDATE payment
+		SET 
+			status = $1,
+			risk_score = $2,
+			risk_level = $3,
+			analyzed_at = $4
+		WHERE id = $5;
+    `
+	_, err = tx.Exec(ctx, queryUpdate, status, score, level, now, paymentID)
+	if err != nil {
+		return "", fmt.Errorf("ошибка обновления статуса платежа: %w", err)
+	}
+
+	// Запись факта смены статуса в аудит-таблицу payment_status_history
+	reason := fmt.Sprintf("Антифрод анализ завершён: score=%d, risk_level=%s", score, level)
+	queryHistory := `
+		INSERT INTO payment_status_history (
+			payment_id,
+			old_status,
+			new_status,
+			changed_at,
+			reason
+		) VALUES ($1, $2, $3, $4, $5);
+	`
+	_, err = tx.Exec(ctx, queryHistory, paymentID, oldStatus, status, now, reason)
+	if err != nil {
+		return "", fmt.Errorf("ошибка добавления записи в историю статусов: %w", err)
+	}
+
+	// Фиксация изменений одной атомарной транзакции
+	if err := tx.Commit(ctx); err != nil {
+		return "", fmt.Errorf("ошибка фиксации транзакции: %w", err)
+	}
+
+	return oldStatus, nil
+}
