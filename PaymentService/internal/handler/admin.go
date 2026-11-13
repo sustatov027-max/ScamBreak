@@ -3,6 +3,8 @@ package handler
 import (
 	"errors"
 	"net/http"
+	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -69,8 +71,37 @@ func (h *AdminHandler) ListSuspicious(c *gin.Context) {
 
 	var filter dto.PaymentFilter
 	if err := c.ShouldBindQuery(&filter); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат параметров фильтрации: " + err.Error()})
-		return
+		fromStr := c.Query("from")
+		toStr := c.Query("to")
+		var parseErr error
+		if fromStr != "" {
+			fromStr = strings.Replace(fromStr, " ", "+", 1)
+			t, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				parseErr = err
+			} else {
+				filter.From = &t
+			}
+		}
+		if toStr != "" {
+			toStr = strings.Replace(toStr, " ", "+", 1)
+			t, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				parseErr = err
+			} else {
+				filter.To = &t
+			}
+		}
+		if rl := c.Query("risk_level"); rl != "" {
+			filter.RiskLevel = &rl
+		}
+		if st := c.Query("status"); st != "" {
+			filter.Status = &st
+		}
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат параметров фильтрации: " + parseErr.Error()})
+			return
+		}
 	}
 
 	filter.Page = pag.Page
@@ -90,8 +121,31 @@ func (h *AdminHandler) ListSuspicious(c *gin.Context) {
 func (h *AdminHandler) GetStats(c *gin.Context) {
 	var filter dto.StatsFilter
 	if err := c.ShouldBindQuery(&filter); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат параметров периода: " + err.Error()})
-		return
+		fromStr := c.Query("from")
+		toStr := c.Query("to")
+		var parseErr error
+		if fromStr != "" {
+			fromStr = strings.Replace(fromStr, " ", "+", 1)
+			t, err := time.Parse(time.RFC3339, fromStr)
+			if err != nil {
+				parseErr = err
+			} else {
+				filter.From = &t
+			}
+		}
+		if toStr != "" {
+			toStr = strings.Replace(toStr, " ", "+", 1)
+			t, err := time.Parse(time.RFC3339, toStr)
+			if err != nil {
+				parseErr = err
+			} else {
+				filter.To = &t
+			}
+		}
+		if parseErr != nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "неверный формат параметров периода: " + parseErr.Error()})
+			return
+		}
 	}
 
 	res, err := h.stats.GetStats(c.Request.Context(), filter)
