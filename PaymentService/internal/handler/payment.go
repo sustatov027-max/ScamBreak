@@ -25,10 +25,9 @@ func NewPaymentHandler(service *service.PaymentService) *PaymentHandler {
 	}
 }
 
-// RegisterPaymentRoutes регистрирует пользовательские, административные и внешние эндпоинты
+// RegisterPaymentRoutes регистрирует пользовательские и внешние эндпоинты
 func RegisterPaymentRoutes(
 	apiGroup *gin.RouterGroup,
-	adminGroup *gin.RouterGroup,
 	externalGroup *gin.RouterGroup,
 	h *PaymentHandler,
 ) {
@@ -38,14 +37,6 @@ func RegisterPaymentRoutes(
 		payments.POST("", ratelimit.PaymentRateLimit(), RequireIdempotencyKey(), h.CreatePayment)
 		payments.GET("", ratelimit.UserRateLimit(), h.ListPayments)
 		payments.GET("/:uid", ratelimit.UserRateLimit(), h.GetPayment)
-	}
-
-	// Административные маршруты (JWT + RoleAdmin)
-	adminPayments := adminGroup.Group("/payments")
-	{
-		adminPayments.GET("/:uid", h.GetPaymentDetails)
-		adminPayments.GET("/suspicious", h.ListSuspicious)
-		adminPayments.GET("/stats", h.GetStats)
 	}
 
 	// Внешние маршруты (внешняя система)
@@ -203,12 +194,3 @@ func (h *PaymentHandler) ListPayments(c *gin.Context) {
 
 	c.JSON(http.StatusOK, res)
 }
-
-// Заглушки для остальных методов
-func (h *PaymentHandler) GetPaymentDetails(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"status": "stub"})
-}
-func (h *PaymentHandler) ListSuspicious(c *gin.Context) {
-	c.JSON(http.StatusOK, gin.H{"suspicious": []any{}})
-}
-func (h *PaymentHandler) GetStats(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"stats": "stub"}) }

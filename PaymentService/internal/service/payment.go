@@ -195,3 +195,40 @@ func (s *PaymentService) ListByUser(
 	f.UserUID = &userUID
 	return s.Find(ctx, f)
 }
+
+func (s *PaymentService) GetDetails(ctx context.Context, uid uuid.UUID) (*dto.PaymentDetailsResponse, error) {
+	p, err := s.payments.FindByUID(ctx, uid)
+	if err != nil {
+		if errors.Is(err, domain.ErrPaymentNotFound) {
+			return nil, domain.ErrPaymentNotFound
+		}
+		return nil, fmt.Errorf("ошибка поиска платежа: %w", err)
+	}
+
+	hist, err := s.payments.History(ctx, p.ID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка поиска связанной истории: %w", err)
+	}
+
+	historyItems := make([]dto.StatusHistoryItem, 0, len(hist))
+	for _, h := range hist {
+		item := dto.StatusHistoryItem{
+			OldStatus: h.OldStatus,
+			NewStatus: h.NewStatus,
+			ChangedAt: h.ChangedAt,
+			Reason:    h.Reason,
+		}
+
+		historyItems = append(historyItems, item)
+	}
+
+	res := dto.PaymentDetailsResponse{
+		Payment:   *toPaymentResponse(p),
+		DeviceUID: p.DeviceUID,
+		IPAddress: p.IPAddress,
+		Source:    string(p.Source),
+		History:   historyItems,
+	}
+
+	return &res, nil
+}

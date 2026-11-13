@@ -81,9 +81,11 @@ func run() error {
 	// Слой бизнес-логики (Service)
 	paymentService := service.NewPaymentService(paymentRepo, userClient, publisher)
 	statusService := service.NewStatusService(paymentRepo, publisher)
+	statisticsService := service.NewStatisticsService(paymentRepo)
 
 	// Слой HTTP-хэндлеров (Handler)
 	paymentHandler := handler.NewPaymentHandler(paymentService)
+	adminHandler := handler.NewAdminHandler(paymentService, statisticsService)
 
 	// Роутер
 	router := gin.Default()
@@ -117,8 +119,9 @@ func run() error {
 	adminGroup := apiGroup.Group("/admin")
 	adminGroup.Use(auth.RequireRole(auth.RoleAdmin))
 
-	// Регистрация маршрутов платежей
-	handler.RegisterPaymentRoutes(apiGroup, adminGroup, externalGroup, paymentHandler)
+	// Регистрация маршрутов платежей и административных маршрутов
+	handler.RegisterPaymentRoutes(apiGroup, externalGroup, paymentHandler)
+	handler.RegisterAdminRoutes(adminGroup, adminHandler)
 
 	// Запуск HTTP сервера
 	srv := &http.Server{

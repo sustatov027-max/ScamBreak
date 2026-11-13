@@ -211,6 +211,18 @@ func (r *PaymentRepository) Find(ctx context.Context, f dto.PaymentFilter) ([]do
 		conditions = append(conditions, fmt.Sprintf("status = $%d", argIdx))
 		args = append(args, strings.ToUpper(strings.TrimSpace(*f.Status)))
 		argIdx++
+	} else if len(f.Statuses) > 0 {
+		var cleanStatuses []string
+		for _, s := range f.Statuses {
+			if trimmed := strings.ToUpper(strings.TrimSpace(s)); trimmed != "" {
+				cleanStatuses = append(cleanStatuses, trimmed)
+			}
+		}
+		if len(cleanStatuses) > 0 {
+			conditions = append(conditions, fmt.Sprintf("status = ANY($%d)", argIdx))
+			args = append(args, cleanStatuses)
+			argIdx++
+		}
 	}
 	if f.RiskLevel != nil && strings.TrimSpace(*f.RiskLevel) != "" {
 		conditions = append(conditions, fmt.Sprintf("risk_level = $%d", argIdx))
@@ -413,4 +425,146 @@ func (r *PaymentRepository) ApplyAnalysis(
 	}
 
 	return oldStatus, nil
+}
+
+// History выполняет выборку истории переходов по id платежа
+func (r *PaymentRepository) History(ctx context.Context, paymentID int64) ([]domain.PaymentStatusHistory, error) {
+	query := `
+		SELECT id, payment_id, old_status, new_status, changed_at, reason
+		FROM payment_status_history
+		WHERE payment_id = $1
+		ORDER BY changed_at ASC, id ASC;
+	`
+
+	rows, err := r.db.Query(ctx, query, paymentID)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка получения списка истории платежей: %w", err)
+	}
+	defer rows.Close()
+
+	history := make([]domain.PaymentStatusHistory, 0)
+	for rows.Next() {
+		var item domain.PaymentStatusHistory
+		if err := rows.Scan(
+			&item.ID,
+			&item.PaymentID,
+			&item.OldStatus,
+			&item.NewStatus,
+			&item.ChangedAt,
+			&item.Reason,
+		); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования истории платежа: %w", err)
+		}
+		history = append(history, item)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации по истории платежей: %w", err)
+	}
+
+	return history, nil
+}
+
+// CountByStatus возвращает количество платежей по каждому статусу с учетом фильтра по времени
+func (r *PaymentRepository) CountByStatus(ctx context.Context, f dto.StatsFilter) (map[domain.PaymentStatus]int, error) {
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	if f.From != nil && !f.From.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
+		args = append(args, *f.From)
+		argIdx++
+	}
+	if f.To != nil && !f.To.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
+		args = append(args, *f.To)
+		argIdx++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT status, COUNT(*)
+		FROM payment
+		%s
+		GROUP BY status;
+	`, whereClause)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подсчета платежей по статусам: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[domain.PaymentStatus]int)
+	for rows.Next() {
+		var status domain.PaymentStatus
+		var count int
+		if err := rows.Scan(&status, &count); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования статистики по статусу: %w", err)
+		}
+		counts[status] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации статистики по статусам: %w", err)
+	}
+
+	return counts, nil
+}
+
+// CountByRiskLevel возвращает количество платежей по каждому уровню риска с учетом фильтра по времени
+func (r *PaymentRepository) CountByRiskLevel(ctx context.Context, f dto.StatsFilter) (map[domain.RiskLevel]int, error) {
+	var conditions []string
+	var args []any
+	argIdx := 1
+
+	if f.From != nil && !f.From.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("created_at >= $%d", argIdx))
+		args = append(args, *f.From)
+		argIdx++
+	}
+	if f.To != nil && !f.To.IsZero() {
+		conditions = append(conditions, fmt.Sprintf("created_at <= $%d", argIdx))
+		args = append(args, *f.To)
+		argIdx++
+	}
+
+	whereClause := ""
+	if len(conditions) > 0 {
+		whereClause = "WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	query := fmt.Sprintf(`
+		SELECT risk_level, COUNT(*)
+		FROM payment
+		%s
+		GROUP BY risk_level;
+	`, whereClause)
+
+	rows, err := r.db.Query(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка подсчета платежей по уровням риска: %w", err)
+	}
+	defer rows.Close()
+
+	counts := make(map[domain.RiskLevel]int)
+	for rows.Next() {
+		var level domain.RiskLevel
+		var count int
+		if err := rows.Scan(&level, &count); err != nil {
+			return nil, fmt.Errorf("ошибка сканирования статистики по уровню риска: %w", err)
+		}
+		counts[level] = count
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("ошибка итерации статистики по уровням риска: %w", err)
+	}
+
+	return counts, nil
 }
