@@ -67,6 +67,19 @@ func run() error {
 	publisher := client.NewKafkaPublisher(cfg.Kafka.Brokers)
 	log.Info("KafkaPublisher успешно инициализирован", "brokers", cfg.Kafka.Brokers)
 
+	// Инициализация ProfileGRPCClient с кэшированием в Redis (Cache-Aside)
+	profileClient, err := client.NewProfileGRPCClient(
+		cfg.GRPC.UserServiceURL,
+		redisClient.Client(),
+		cfg.Redis.ProfileTTL,
+		cfg.GRPC.Timeout,
+		log,
+	)
+	if err != nil {
+		return fmt.Errorf("ошибка инициализации ProfileGRPCClient: %w", err)
+	}
+	log.Info("ProfileGRPCClient успешно инициализирован", "target", cfg.GRPC.UserServiceURL)
+
 	// Инициализация хранилища идемпотентности на базе Redis
 	redisStore := repository.NewRedisStore(redisClient.Client())
 
@@ -151,6 +164,11 @@ func run() error {
 	// Redis-клиент
 	sm.Register("redis-client", func(_ context.Context) error {
 		return redisClient.Close()
+	})
+
+	// gRPC client к UserService
+	sm.Register("profile-grpc-client", func(_ context.Context) error {
+		return profileClient.Close()
 	})
 
 	// Kafka consumer

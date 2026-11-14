@@ -78,10 +78,11 @@ func (d DatabaseConfig) DSN() string {
 
 // RedisConfig содержит параметры подключения к Redis.
 type RedisConfig struct {
-	Host     string `envconfig:"REDIS_HOST" default:"localhost"`
-	Port     string `envconfig:"REDIS_PORT" default:"6379"`
-	Password string `envconfig:"REDIS_PASSWORD" default:""`
-	DB       int    `envconfig:"REDIS_DB" default:"0"`
+	Host       string        `envconfig:"REDIS_HOST" default:"localhost"`
+	Port       string        `envconfig:"REDIS_PORT" default:"6379"`
+	Password   string        `envconfig:"REDIS_PASSWORD" default:""`
+	DB         int           `envconfig:"REDIS_DB" default:"0"`
+	ProfileTTL time.Duration `envconfig:"PROFILE_CACHE_TTL" default:"15m"`
 }
 
 // Addr возвращает адрес Redis в формате "host:port".
@@ -97,8 +98,9 @@ type KafkaConfig struct {
 
 // GRPCConfig содержит параметры gRPC сервера и клиентов.
 type GRPCConfig struct {
-	Port           string `envconfig:"GRPC_PORT" default:"50051"`
-	UserServiceURL string `envconfig:"USER_SERVICE_GRPC_ADDR" default:"localhost:50051"`
+	Port           string        `envconfig:"GRPC_PORT" default:"50051"`
+	UserServiceURL string        `envconfig:"USER_SERVICE_GRPC_ADDR" default:"localhost:50051"`
+	Timeout        time.Duration `envconfig:"USER_SERVICE_TIMEOUT" default:"3s"`
 }
 
 // Addr возвращает адрес gRPC в формате ":port".

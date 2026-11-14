@@ -70,7 +70,7 @@ func run() error {
 	paymentRepo := repository.NewPaymentRepository(pool)
 
 	// Подключение gRPC клиента UserService
-	userClient, err := client.NewUserGRPCClient(cfg.GRPC.UserServiceURL, 3*time.Second)
+	userClient, err := client.NewUserGRPCClient(cfg.GRPC.UserServiceURL, cfg.GRPC.Timeout)
 	if err != nil {
 		return fmt.Errorf("ошибка инициализации UserGRPCClient: %w", err)
 	}
