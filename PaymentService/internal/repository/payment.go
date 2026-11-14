@@ -443,7 +443,7 @@ func (r *PaymentRepository) History(ctx context.Context, paymentID int64) ([]dom
 		SELECT id, payment_id, old_status, new_status, changed_at, reason
 		FROM payment_status_history
 		WHERE payment_id = $1
-		ORDER BY changed_at ASC, id ASC;
+		ORDER BY changed_at, id;
 	`
 
 	rows, err := r.db.Query(ctx, query, paymentID)
