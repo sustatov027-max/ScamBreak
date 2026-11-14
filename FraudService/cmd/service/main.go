@@ -11,6 +11,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/client"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/consumer"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/shutdown"
@@ -64,6 +66,27 @@ func run() error {
 	// Инициализация KafkaPublisher
 	publisher := client.NewKafkaPublisher(cfg.Kafka.Brokers)
 	log.Info("KafkaPublisher успешно инициализирован", "brokers", cfg.Kafka.Brokers)
+
+	// Инициализация хранилища идемпотентности на базе Redis
+	redisStore := repository.NewRedisStore(redisClient.Client())
+
+	// Инициализация консьюмера Kafka payment.created
+	paymentConsumer := consumer.NewPaymentCreatedConsumer(
+		cfg.Kafka.Brokers,
+		"fraud-payment-created-consumer",
+		"payment.created",
+		redisStore,
+		log,
+	)
+
+	// Запуск консьюмера в отдельной горутине
+	consumerCtx, cancelConsumer := context.WithCancel(context.Background())
+	defer cancelConsumer()
+	go func() {
+		if err := paymentConsumer.Run(consumerCtx); err != nil && !errors.Is(err, context.Canceled) {
+			log.Error("ошибка в работе PaymentCreatedConsumer", logger.Err(err))
+		}
+	}()
 
 	// Роутер
 	router := gin.Default()
@@ -119,23 +142,29 @@ func run() error {
 	sm := shutdown.New(cfg.Server.ShutdownTimeout)
 
 	// LIFO порядок остановки:
-	// 1. PostgreSQL pool закрывается последним
+	// PostgreSQL pool закрывается последним
 	sm.Register("postgres-pool", func(_ context.Context) error {
 		pool.Close()
 		return nil
 	})
 
-	// 2. Redis-клиент
+	// Redis-клиент
 	sm.Register("redis-client", func(_ context.Context) error {
 		return redisClient.Close()
 	})
 
-	// 3. Kafka publisher
+	// Kafka consumer
+	sm.Register("payment-created-consumer", func(_ context.Context) error {
+		cancelConsumer()
+		return paymentConsumer.Close()
+	})
+
+	// Kafka publisher
 	sm.Register("kafka-publisher", func(_ context.Context) error {
 		return publisher.Close()
 	})
 
-	// 4. Остановка HTTP-сервера (выполнится первой в LIFO)
+	// Остановка HTTP-сервера
 	sm.RegisterServer(srv)
 
 	// Ожидание SIGINT / SIGTERM от ОС
