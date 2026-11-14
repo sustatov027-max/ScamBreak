@@ -154,10 +154,24 @@ services:
       kafka:
         condition: service_healthy
 
+# Веб-интерфейс RedisInsight (просмотр и анализ данных в Redis)
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: scambreak-redisinsight
+    restart: unless-stopped
+    ports:
+      - "5540:5540"
+    volumes:
+      - redisinsight_data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+
 volumes:
   postgres_user_data:
   postgres_payment_data:
   postgres_fraud_data:
   postgres_notification_data:
   redis_data:
+  redisinsight_data:
   kafka_data:
