@@ -53,9 +53,39 @@ func (c *AnalysisConsumer) Run(ctx context.Context) error {
 			continue
 		}
 
-		// Обработка
-		if err := c.handle(ctx, msg); err != nil {
-			c.log.Error("ошибка обработки сообщения", slog.String("error", err.Error()))
+		// Обработка сообщения с механизмом повторных попыток (retry)
+		const maxRetries = 3
+		var handleErr error
+
+		for attempt := 1; attempt <= maxRetries; attempt++ {
+			handleErr = c.handle(ctx, msg)
+			if handleErr == nil {
+				break
+			}
+
+			c.log.Warn("ошибка обработки сообщения, повторная попытка",
+				slog.Int("attempt", attempt),
+				slog.Int("max_retries", maxRetries),
+				slog.String("error", handleErr.Error()),
+			)
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(time.Duration(attempt) * 500 * time.Millisecond):
+			}
+		}
+
+		if handleErr != nil {
+			c.log.Error("не удалось обработать сообщение после всех попыток",
+				slog.Int("attempts", maxRetries),
+				slog.String("error", handleErr.Error()),
+			)
+			// Фиксируем смещение сбойного сообщения (poison pill), чтобы оно не блокировало очередь
+			// и не вызывало бесконечные повторные ошибки при перезапуске сервиса
+			if err := c.reader.CommitMessages(ctx, msg); err != nil {
+				c.log.Error("ошибка коммита смещения для сбойного сообщения", slog.String("error", err.Error()))
+			}
 			continue
 		}
 
