@@ -10,18 +10,25 @@ import (
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/dto"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 )
 
+type PaymentRepository interface {
+	Insert(ctx context.Context, p *domain.Payment) error
+	FindByUID(ctx context.Context, uid uuid.UUID) (*domain.Payment, error)
+	FindByIdempotencyKey(ctx context.Context, userUID uuid.UUID, key string) (*domain.Payment, error)
+	Find(ctx context.Context, f dto.PaymentFilter) ([]domain.Payment, int, error)
+	History(ctx context.Context, paymentID int64) ([]domain.PaymentStatusHistory, error)
+}
+
 type PaymentService struct {
-	payments  *repository.PaymentRepository
+	payments  PaymentRepository
 	users     client.UserClient
 	publisher client.EventPublisher
 }
 
 func NewPaymentService(
-	payments *repository.PaymentRepository,
+	payments PaymentRepository,
 	users client.UserClient,
 	publisher client.EventPublisher,
 ) *PaymentService {

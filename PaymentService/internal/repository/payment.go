@@ -16,12 +16,22 @@ import (
 )
 
 type PaymentRepository struct {
-	db *pgxpool.Pool
+	pool *pgxpool.Pool
+	db   DBTX
 }
 
-func NewPaymentRepository(db *pgxpool.Pool) *PaymentRepository {
+func NewPaymentRepository(pool *pgxpool.Pool) *PaymentRepository {
 	return &PaymentRepository{
-		db: db,
+		pool: pool,
+		db:   pool,
+	}
+}
+
+// WithTx возвращает копию репозитория, привязанную к транзакции pgx.Tx.
+func (r *PaymentRepository) WithTx(tx pgx.Tx) *PaymentRepository {
+	return &PaymentRepository{
+		pool: r.pool,
+		db:   tx,
 	}
 }
 
@@ -348,7 +358,7 @@ func (r *PaymentRepository) ApplyAnalysis(
 	status domain.PaymentStatus,
 ) (old domain.PaymentStatus, err error) {
 	// Открытие транзакции
-	tx, err := r.db.Begin(ctx)
+	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return "", fmt.Errorf("ошибка открытия транзакции: %w", err)
 	}

@@ -6,15 +6,20 @@ import (
 
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/dto"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 )
 
-type StatisticsService struct {
-	payments *repository.PaymentRepository
+type PaymentStatsRepository interface {
+	CountByStatus(ctx context.Context, f dto.StatsFilter) (map[domain.PaymentStatus]int, error)
+	CountByRiskLevel(ctx context.Context, f dto.StatsFilter) (map[domain.RiskLevel]int, error)
+	Find(ctx context.Context, f dto.PaymentFilter) ([]domain.Payment, int, error)
 }
 
-func NewStatisticsService(payments *repository.PaymentRepository) *StatisticsService {
+type StatisticsService struct {
+	payments PaymentStatsRepository
+}
+
+func NewStatisticsService(payments PaymentStatsRepository) *StatisticsService {
 	return &StatisticsService{
 		payments: payments,
 	}

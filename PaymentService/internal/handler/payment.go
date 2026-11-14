@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
@@ -8,18 +9,23 @@ import (
 	"github.com/google/uuid"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/dto"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 	"github.com/sustatov027-max/ScamBreak/pkg/ratelimit"
 )
 
-type PaymentHandler struct {
-	service *service.PaymentService
+type PaymentService interface {
+	Create(ctx context.Context, key string, userUID uuid.UUID, req dto.CreatePaymentRequest, src domain.PaymentSource) (*dto.PaymentResponse, bool, error)
+	Get(ctx context.Context, uid, requesterUID uuid.UUID, isAdmin bool) (*dto.PaymentResponse, error)
+	ListByUser(ctx context.Context, userUID uuid.UUID, f dto.PaymentFilter) (*pagination.PagedResponse[dto.PaymentResponse], error)
 }
 
-func NewPaymentHandler(service *service.PaymentService) *PaymentHandler {
+type PaymentHandler struct {
+	service PaymentService
+}
+
+func NewPaymentHandler(service PaymentService) *PaymentHandler {
 	return &PaymentHandler{
 		service: service,
 	}

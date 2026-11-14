@@ -10,16 +10,19 @@ import (
 
 	"github.com/segmentio/kafka-go"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
 )
+
+type StatusService interface {
+	ApplyAnalysisResult(ctx context.Context, e domain.FraudAnalysisCompletedEvent) error
+}
 
 type FraudResultConsumer struct {
 	reader   *kafka.Reader
-	statuses *service.StatusService
+	statuses StatusService
 	log      *slog.Logger
 }
 
-func NewFraudResultConsumer(brokers []string, groupID, topic string, statuses *service.StatusService, log *slog.Logger) *FraudResultConsumer {
+func NewFraudResultConsumer(brokers []string, groupID, topic string, statuses StatusService, log *slog.Logger) *FraudResultConsumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		GroupID:        groupID,

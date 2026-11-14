@@ -8,15 +8,18 @@ import (
 	"github.com/google/uuid"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/repository"
 )
 
+type PaymentStatusRepository interface {
+	ApplyAnalysis(ctx context.Context, uid uuid.UUID, score int, level domain.RiskLevel, status domain.PaymentStatus) (domain.PaymentStatus, error)
+}
+
 type StatusService struct {
-	payments  *repository.PaymentRepository
+	payments  PaymentStatusRepository
 	publisher client.EventPublisher
 }
 
-func NewStatusService(payments *repository.PaymentRepository, publisher client.EventPublisher) *StatusService {
+func NewStatusService(payments PaymentStatusRepository, publisher client.EventPublisher) *StatusService {
 	return &StatusService{
 		payments:  payments,
 		publisher: publisher,

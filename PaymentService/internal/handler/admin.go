@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strings"
@@ -10,18 +11,26 @@ import (
 	"github.com/google/uuid"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/dto"
-	"github.com/sustatov027-max/ScamBreak/PaymentService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/pagination"
 	"github.com/sustatov027-max/ScamBreak/pkg/ratelimit"
 )
 
-type AdminHandler struct {
-	payments *service.PaymentService
-	stats    *service.StatisticsService
+type PaymentDetailsService interface {
+	GetDetails(ctx context.Context, uid uuid.UUID) (*dto.PaymentDetailsResponse, error)
 }
 
-func NewAdminHandler(payments *service.PaymentService, stats *service.StatisticsService) *AdminHandler {
+type StatisticsService interface {
+	ListSuspicious(ctx context.Context, f dto.PaymentFilter) (*pagination.PagedResponse[dto.PaymentResponse], error)
+	GetStats(ctx context.Context, f dto.StatsFilter) (*dto.PaymentStatsResponse, error)
+}
+
+type AdminHandler struct {
+	payments PaymentDetailsService
+	stats    StatisticsService
+}
+
+func NewAdminHandler(payments PaymentDetailsService, stats StatisticsService) *AdminHandler {
 	return &AdminHandler{
 		payments: payments,
 		stats:    stats,
