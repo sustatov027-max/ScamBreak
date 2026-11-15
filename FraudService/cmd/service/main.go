@@ -80,15 +80,15 @@ func run() error {
 	}
 	log.Info("ProfileGRPCClient успешно инициализирован", "target", cfg.GRPC.UserServiceURL)
 
-	// Инициализация хранилища идемпотентности на базе Redis
-	redisStore := repository.NewRedisStore(redisClient.Client())
+	// Инициализация VelocityStore
+	velocityStore := repository.NewVelocityStore(redisClient.Client())
 
 	// Инициализация консьюмера Kafka payment.created
 	paymentConsumer := consumer.NewPaymentCreatedConsumer(
 		cfg.Kafka.Brokers,
 		"fraud-payment-created-consumer",
 		"payment.created",
-		redisStore,
+		velocityStore,
 		log,
 	)
 
