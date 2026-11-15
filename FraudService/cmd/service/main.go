@@ -12,7 +12,9 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/consumer"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/repository"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/rules"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
@@ -87,12 +89,19 @@ func run() error {
 	// Инициализация репозитория правил риска
 	riskRuleRepo := repository.NewRiskRuleRepository(pool)
 
-	// Инициализация сервиса обнаружения мошенничества (DetectionService)
+	// Инициализация сервиса обнаружения мошенничества (DetectionService) с первыми 4 правилами
+	fraudRules := []domain.FraudRule{
+		rules.NewAmountRule(),
+		rules.NewVelocityRule(),
+		rules.NewSequenceRule(),
+		rules.NewTimeAnomalyRule(),
+	}
+
 	detectionService := service.NewDetectionService(
 		profileClient,
 		velocityStore,
 		riskRuleRepo,
-		nil,
+		fraudRules,
 		log,
 	)
 	_ = detectionService
