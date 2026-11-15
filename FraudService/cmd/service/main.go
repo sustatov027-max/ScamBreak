@@ -13,6 +13,7 @@ import (
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/consumer"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/repository"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/service"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/shutdown"
@@ -82,6 +83,19 @@ func run() error {
 
 	// Инициализация VelocityStore
 	velocityStore := repository.NewVelocityStore(redisClient.Client())
+
+	// Инициализация репозитория правил риска
+	riskRuleRepo := repository.NewRiskRuleRepository(pool)
+
+	// Инициализация сервиса обнаружения мошенничества (DetectionService)
+	detectionService := service.NewDetectionService(
+		profileClient,
+		velocityStore,
+		riskRuleRepo,
+		nil,
+		log,
+	)
+	_ = detectionService
 
 	// Инициализация консьюмера Kafka payment.created
 	paymentConsumer := consumer.NewPaymentCreatedConsumer(
