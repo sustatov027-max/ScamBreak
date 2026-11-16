@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"time"
 
@@ -15,6 +16,7 @@ type DetectionService struct {
 	profiles  client.ProfileClient
 	velocity  repository.VelocityStorage
 	rulesRepo repository.RiskRuleRepository
+	scorer    *RiskScorer
 	rules     []domain.FraudRule
 	log       *slog.Logger
 }
@@ -23,6 +25,7 @@ func NewDetectionService(
 	profiles client.ProfileClient,
 	velocity repository.VelocityStorage,
 	rulesRepo repository.RiskRuleRepository,
+	scorer *RiskScorer,
 	rules []domain.FraudRule,
 	log *slog.Logger,
 ) *DetectionService {
@@ -30,9 +33,27 @@ func NewDetectionService(
 		profiles:  profiles,
 		velocity:  velocity,
 		rulesRepo: rulesRepo,
+		scorer:    scorer,
 		rules:     rules,
 		log:       log,
 	}
+}
+
+// Analyze выполняет полный цикл оценки транзакции
+func (s *DetectionService) Analyze(ctx context.Context, e domain.PaymentCreatedEvent) (*domain.RiskAssessment, error) {
+	ctxData, err := s.buildContext(ctx, e)
+	if err != nil {
+		return nil, fmt.Errorf("ошибка сборки контекста: %w", err)
+	}
+
+	var triggered []*domain.RuleResult
+	for _, rule := range s.rules {
+		if res := rule.Evaluate(ctxData); res != nil {
+			triggered = append(triggered, res)
+		}
+	}
+
+	return s.scorer.Calculate(triggered), nil
 }
 
 // BuildContext собирает полный AnalysisContext из входящего события, профиля пользователя и данных Redis.

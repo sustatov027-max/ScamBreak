@@ -101,10 +101,13 @@ func run() error {
 		rules.NewActivityChangeRule(),
 	}
 
+	scorer := service.NewRiskScorer()
+
 	detectionService := service.NewDetectionService(
 		profileClient,
 		velocityStore,
 		riskRuleRepo,
+		scorer,
 		fraudRules,
 		log,
 	)
