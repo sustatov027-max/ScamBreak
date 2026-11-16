@@ -28,4 +28,5 @@ type RiskProfile struct {
 	LastPaymentAt *time.Time `json:"last_payment_at,omitempty"`
 	UsualHourFrom int32      `json:"usual_hour_from"`
 	UsualHourTo   int32      `json:"usual_hour_to"`
+	CreatedAt     time.Time  `json:"created_at"`
 }

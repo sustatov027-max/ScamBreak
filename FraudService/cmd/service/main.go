@@ -89,12 +89,16 @@ func run() error {
 	// Инициализация репозитория правил риска
 	riskRuleRepo := repository.NewRiskRuleRepository(pool)
 
-	// Инициализация сервиса обнаружения мошенничества (DetectionService) с первыми 4 правилами
+	// Инициализация сервиса обнаружения мошенничества (DetectionService)
 	fraudRules := []domain.FraudRule{
 		rules.NewAmountRule(),
 		rules.NewVelocityRule(),
 		rules.NewSequenceRule(),
 		rules.NewTimeAnomalyRule(),
+		rules.NewBehaviorRule(),
+		rules.NewDeviceRule(),
+		rules.NewNetworkRule(),
+		rules.NewActivityChangeRule(),
 	}
 
 	detectionService := service.NewDetectionService(
