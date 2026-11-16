@@ -45,7 +45,9 @@ func (r *DeviceRule) Evaluate(c *domain.AnalysisContext) *domain.RuleResult {
 	}
 
 	return &domain.RuleResult{
+		RuleCode:   r.Code(),
 		ScoreDelta: scoreDelta,
 		Details:    fmt.Sprintf("использование ранее неизвестного устройства: %s", c.Payment.DeviceUID),
 	}
+
 }

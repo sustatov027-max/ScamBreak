@@ -15,7 +15,7 @@ import (
 type DetectionService struct {
 	profiles  client.ProfileClient
 	velocity  repository.VelocityStorage
-	rulesRepo repository.RiskRuleRepository
+	rulesRepo repository.AssessmentRepository
 	scorer    *RiskScorer
 	rules     []domain.FraudRule
 	log       *slog.Logger
@@ -24,7 +24,7 @@ type DetectionService struct {
 func NewDetectionService(
 	profiles client.ProfileClient,
 	velocity repository.VelocityStorage,
-	rulesRepo repository.RiskRuleRepository,
+	rulesRepo repository.AssessmentRepository,
 	scorer *RiskScorer,
 	rules []domain.FraudRule,
 	log *slog.Logger,
@@ -53,7 +53,14 @@ func (s *DetectionService) Analyze(ctx context.Context, e domain.PaymentCreatedE
 		}
 	}
 
-	return s.scorer.Calculate(triggered), nil
+	assessment := s.scorer.Calculate(triggered)
+
+	// Сохранение результатов в базу
+	if err := s.rulesRepo.Save(ctx, assessment, triggered, e); err != nil {
+		return nil, fmt.Errorf("ошибка сохранения оценки риска: %w", err)
+	}
+
+	return assessment, nil
 }
 
 // BuildContext собирает полный AnalysisContext из входящего события, профиля пользователя и данных Redis.
@@ -142,7 +149,11 @@ func (s *DetectionService) buildContext(ctx context.Context, e domain.PaymentCre
 	// Получение актуальных настроек правил из репозитория
 	var settings map[string]domain.RiskRule
 	if s.rulesRepo != nil {
-		rulesMap, err := s.rulesRepo.GetRulesMap(ctx)
+		list, err := s.rulesRepo.LoadEnabledRules(ctx)
+		rulesMap := make(map[string]domain.RiskRule)
+		for _, r := range list {
+			rulesMap[r.Code] = r
+		}
 		if err != nil {
 			if s.log != nil {
 				s.log.Warn("ошибка получения настроек правил из репозитория",

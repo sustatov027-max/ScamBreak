@@ -87,7 +87,7 @@ func run() error {
 	velocityStore := repository.NewVelocityStore(redisClient.Client())
 
 	// Инициализация репозитория правил риска
-	riskRuleRepo := repository.NewRiskRuleRepository(pool)
+	assessmentRepo := repository.NewAssessmentRepository(pool)
 
 	// Инициализация сервиса обнаружения мошенничества (DetectionService)
 	fraudRules := []domain.FraudRule{
@@ -106,7 +106,7 @@ func run() error {
 	detectionService := service.NewDetectionService(
 		profileClient,
 		velocityStore,
-		riskRuleRepo,
+		assessmentRepo,
 		scorer,
 		fraudRules,
 		log,
