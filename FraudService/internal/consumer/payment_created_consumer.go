@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"time"
@@ -17,16 +18,23 @@ import (
 type IdempotencyStore interface {
 	MarkProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
 }
+
+// FraudDetector интерфейс обработки платежа
+type FraudDetector interface {
+	Analyze(ctx context.Context, e domain.PaymentCreatedEvent) (*domain.RiskAssessment, error)
+}
 type PaymentCreatedConsumer struct {
-	reader *kafka.Reader
-	store  IdempotencyStore
-	log    *slog.Logger
+	reader   *kafka.Reader
+	store    IdempotencyStore
+	detector FraudDetector
+	log      *slog.Logger
 }
 
 func NewPaymentCreatedConsumer(
 	brokers []string,
 	groupID, topic string,
 	store IdempotencyStore,
+	detector FraudDetector,
 	log *slog.Logger,
 ) *PaymentCreatedConsumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
@@ -37,9 +45,10 @@ func NewPaymentCreatedConsumer(
 		StartOffset:    kafka.FirstOffset,
 	})
 	return &PaymentCreatedConsumer{
-		reader: reader,
-		store:  store,
-		log:    log,
+		reader:   reader,
+		store:    store,
+		detector: detector,
+		log:      log,
 	}
 }
 
@@ -97,7 +106,17 @@ func (c *PaymentCreatedConsumer) handle(ctx context.Context, msg kafka.Message) 
 		slog.Float64("amount", event.Amount),
 	)
 
-	// Здесь на следующем этапе будет вызов: s.detector.Analyze(ctx, event)
+	// Запуск анализа платежа иоценка рисков
+	assessment, err := c.detector.Analyze(ctx, event)
+	if err != nil {
+		return fmt.Errorf("ошибка анализа платежа %s: %w", event.PaymentUID, err)
+	}
+	c.log.Info("анализ платежа успешно завершён",
+		slog.String("payment_uid", event.PaymentUID.String()),
+		slog.Int("risk_score", assessment.RiskScore),
+		slog.String("risk_level", string(assessment.RiskLevel)),
+		slog.String("decision", string(assessment.Decision)),
+	)
 	return nil
 }
 func (c *PaymentCreatedConsumer) Close() error {

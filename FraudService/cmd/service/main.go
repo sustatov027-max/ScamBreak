@@ -111,7 +111,6 @@ func run() error {
 		fraudRules,
 		log,
 	)
-	_ = detectionService
 
 	// Инициализация консьюмера Kafka payment.created
 	paymentConsumer := consumer.NewPaymentCreatedConsumer(
@@ -119,6 +118,7 @@ func run() error {
 		"fraud-payment-created-consumer",
 		"payment.created",
 		velocityStore,
+		detectionService,
 		log,
 	)
 
