@@ -106,7 +106,7 @@ func (c *PaymentCreatedConsumer) handle(ctx context.Context, msg kafka.Message) 
 		slog.Float64("amount", event.Amount),
 	)
 
-	// Запуск анализа платежа иоценка рисков
+	// Запуск анализа платежа и оценка рисков
 	assessment, err := c.detector.Analyze(ctx, event)
 	if err != nil {
 		return fmt.Errorf("ошибка анализа платежа %s: %w", event.PaymentUID, err)
