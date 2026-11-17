@@ -13,10 +13,13 @@ import (
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/consumer"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/domain"
+	"github.com/sustatov027-max/ScamBreak/FraudService/internal/handler"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/repository"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/rules"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/service"
+	"github.com/sustatov027-max/ScamBreak/pkg/auth"
 	"github.com/sustatov027-max/ScamBreak/pkg/config"
+
 	"github.com/sustatov027-max/ScamBreak/pkg/logger"
 	"github.com/sustatov027-max/ScamBreak/pkg/shutdown"
 )
@@ -132,6 +135,16 @@ func run() error {
 		}
 	}()
 
+	// Загрузка RSA открытого ключа для валидации JWT
+	pubKey, err := auth.LoadRSAPublicKeyFromFile(cfg.JWT.PublicKeyPath)
+	if err != nil {
+		return fmt.Errorf("ошибка загрузки public RSA key: %w", err)
+	}
+
+	// Инициализация сервиса чтения оценок (AssessmentQueryService) и хэндлера
+	queryService := service.NewAssessmentQueryService(assessmentRepo)
+	assessmentHandler := handler.NewAssessmentHandler(queryService)
+
 	// Роутер
 	router := gin.Default()
 
@@ -165,6 +178,17 @@ func run() error {
 			"timestamp": time.Now().UTC().Format(time.RFC3339),
 		})
 	})
+
+	// Защищенная группа API (требует JWT)
+	apiGroup := router.Group("/api")
+	apiGroup.Use(auth.JWTMiddleware(pubKey))
+
+	// Административная группа (требует роль Admin)
+	adminGroup := apiGroup.Group("/admin")
+	adminGroup.Use(auth.RequireRole(auth.RoleAdmin))
+
+	// Регистрация маршрутов администратора для оценок и правил
+	handler.RegisterAdminRoutes(adminGroup, assessmentHandler)
 
 	// Запуск HTTP сервера
 	srv := &http.Server{

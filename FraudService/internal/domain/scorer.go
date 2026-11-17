@@ -1,6 +1,13 @@
 package domain
 
+import "errors"
+
+var (
+	ErrAssessmentNotFound = errors.New("оценка риска не найдена")
+)
+
 // RiskLevel определяет категорию риска
+
 type RiskLevel string
 
 const (
