@@ -226,15 +226,15 @@ func run() error {
 		return profileClient.Close()
 	})
 
+	// Kafka publisher
+	sm.Register("kafka-publisher", func(_ context.Context) error {
+		return publisher.Close()
+	})
+
 	// Kafka consumer
 	sm.Register("payment-created-consumer", func(_ context.Context) error {
 		cancelConsumer()
 		return paymentConsumer.Close()
-	})
-
-	// Kafka publisher
-	sm.Register("kafka-publisher", func(_ context.Context) error {
-		return publisher.Close()
 	})
 
 	// Остановка HTTP-сервера

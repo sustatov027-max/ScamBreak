@@ -51,6 +51,13 @@ func (s *DetectionService) Analyze(ctx context.Context, e domain.PaymentCreatedE
 	}
 
 	var triggered []*domain.RuleResult
+	if ctxData.Profile != nil && !ctxData.Profile.IsActive {
+		triggered = append(triggered, &domain.RuleResult{
+			RuleCode:   "INACTIVE_USER",
+			ScoreDelta: 100,
+			Details:    "попытка совершения платежа деактивированным или заблокированным пользователем",
+		})
+	}
 	for _, rule := range s.rules {
 		if res := rule.Evaluate(ctxData); res != nil {
 			triggered = append(triggered, res)
@@ -70,6 +77,18 @@ func (s *DetectionService) Analyze(ctx context.Context, e domain.PaymentCreatedE
 			s.log.Error("ошибка публикации событий fraud", slog.String("error", err.Error()))
 		}
 		return nil, fmt.Errorf("ошибка публикации результатов анализа: %w", err)
+	}
+
+	// Регистрация платежа в хранилище скорости и истории сумм
+	if s.velocity != nil {
+		if err := s.velocity.Register(ctx, e.UserUID, e.PaymentUID, e.Amount, e.OperationTime); err != nil {
+			if s.log != nil {
+				s.log.Warn("ошибка регистрации платежа в VelocityStore",
+					slog.String("payment_uid", e.PaymentUID.String()),
+					slog.String("error", err.Error()),
+				)
+			}
+		}
 	}
 
 	return assessment, nil
@@ -93,18 +112,16 @@ func (s *DetectionService) buildContext(ctx context.Context, e domain.PaymentCre
 					Exists:   false,
 					IsActive: true,
 				}
-			} else {
-				if s.log != nil {
-					s.log.Warn("не удалось получить профиль риска пользователя, создаем fallback-профиль",
-						slog.String("user_uid", e.UserUID.String()),
-						slog.String("error", err.Error()),
-					)
-				}
+			} else if errors.Is(err, domain.ErrUserInactive) {
 				profile = &domain.RiskProfile{
 					UserUID:  e.UserUID,
-					Exists:   false,
-					IsActive: true,
+					Exists:   true,
+					IsActive: false,
 				}
+			} else {
+				// Временный сбой связи с UserService (таймаут, падение сервиса).
+				// Возвращаем ошибку для повтора консьюмером
+				return nil, fmt.Errorf("ошибка получения профиля пользователя из UserService: %w", err)
 			}
 		} else {
 			profile = p

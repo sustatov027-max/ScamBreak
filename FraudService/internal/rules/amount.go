@@ -47,8 +47,8 @@ func (r *AmountRule) Evaluate(c *domain.AnalysisContext) *domain.RuleResult {
 
 	// Условие 1: Превышение среднего в multiplier раз
 	exceedsAvg := c.Profile.AvgAmount > 0 && c.Payment.Amount > c.Profile.AvgAmount*multiplier
-	// Условие 2: Превышение исторического максимума
-	exceedsMax := c.Profile.MaxAmount > 0 && c.Payment.Amount > c.Profile.MaxAmount
+	// Условие 2: Превышение исторического максимума при достаточной истории (от 3 платежей) более чем на 50%
+	exceedsMax := c.Profile.PaymentsCount >= 3 && c.Profile.MaxAmount > 0 && c.Payment.Amount > c.Profile.MaxAmount*1.5
 
 	if exceedsAvg || exceedsMax {
 		details := fmt.Sprintf("размер платежа %.2f превышает средний (%.2f) более чем в %.1f раза или исторический максимум (%.2f)",

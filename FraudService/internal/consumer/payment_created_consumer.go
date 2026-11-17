@@ -17,6 +17,7 @@ import (
 // IdempotencyStore интерфейс хранилища идемпотентности
 type IdempotencyStore interface {
 	MarkProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
+	ClearProcessed(ctx context.Context, eventID uuid.UUID) error
 }
 
 // FraudDetector интерфейс обработки платежа
@@ -109,6 +110,12 @@ func (c *PaymentCreatedConsumer) handle(ctx context.Context, msg kafka.Message) 
 	// Запуск анализа платежа и оценка рисков
 	assessment, err := c.detector.Analyze(ctx, event)
 	if err != nil {
+		if clearErr := c.store.ClearProcessed(ctx, event.EventID); clearErr != nil {
+			c.log.Error("не удалось снять отметку обработки event_id в redis",
+				slog.String("event_id", event.EventID.String()),
+				slog.String("error", clearErr.Error()),
+			)
+		}
 		return fmt.Errorf("ошибка анализа платежа %s: %w", event.PaymentUID, err)
 	}
 	c.log.Info("анализ платежа успешно завершён",

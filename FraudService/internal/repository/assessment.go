@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
@@ -22,8 +24,11 @@ type AssessmentRepository interface {
 }
 
 type AssessmentRepo struct {
-	pool *pgxpool.Pool
-	db   DBTX
+	pool         *pgxpool.Pool
+	db           DBTX
+	rulesMu      sync.RWMutex
+	rulesCache   []domain.RiskRule
+	rulesCacheAt time.Time
 }
 
 func NewAssessmentRepository(pool *pgxpool.Pool) *AssessmentRepo {
@@ -36,8 +41,10 @@ func NewAssessmentRepository(pool *pgxpool.Pool) *AssessmentRepo {
 // WithTx возвращает копию репозитория, привязанную к транзакции pgx.Tx
 func (r *AssessmentRepo) WithTx(tx pgx.Tx) *AssessmentRepo {
 	return &AssessmentRepo{
-		pool: r.pool,
-		db:   tx,
+		pool:         r.pool,
+		db:           tx,
+		rulesCache:   r.rulesCache,
+		rulesCacheAt: r.rulesCacheAt,
 	}
 }
 
@@ -48,11 +55,16 @@ func (r *AssessmentRepo) Save(ctx context.Context, assessment *domain.RiskAssess
 	}
 	defer tx.Rollback(ctx)
 
-	// 1. Вставка в risk_assessment
+	// 1. Идемпотентная вставка/обновление в risk_assessment
 	var assessmentID int64
 	queryAssessment := `
 		INSERT INTO risk_assessment (payment_uid, user_uid, risk_score, risk_level, decision, analyzed_at)
 		VALUES ($1, $2, $3, $4, $5, now())
+		ON CONFLICT (payment_uid) DO UPDATE
+		SET risk_score = EXCLUDED.risk_score,
+		    risk_level = EXCLUDED.risk_level,
+		    decision = EXCLUDED.decision,
+		    analyzed_at = now()
 		RETURNING id;
 	`
 	err = tx.QueryRow(ctx, queryAssessment, event.PaymentUID, event.UserUID, assessment.RiskScore, assessment.RiskLevel, assessment.Decision).Scan(&assessmentID)
@@ -60,7 +72,13 @@ func (r *AssessmentRepo) Save(ctx context.Context, assessment *domain.RiskAssess
 		return fmt.Errorf("ошибка вставки оценки риска: %w", err)
 	}
 
-	// 2. Вставка сработавших правил в triggered_rule
+	// 2. Очистка старых сработавших правил для этой оценки при повторном анализе
+	_, err = tx.Exec(ctx, `DELETE FROM triggered_rule WHERE assessment_id = $1;`, assessmentID)
+	if err != nil {
+		return fmt.Errorf("ошибка очистки предыдущих сработавших правил: %w", err)
+	}
+
+	// 3. Вставка сработавших правил в triggered_rule
 	if len(results) > 0 {
 		queryTriggered := `
 			INSERT INTO triggered_rule (assessment_id, rule_id, payment_uid, user_uid, score_delta, details)
@@ -72,8 +90,9 @@ func (r *AssessmentRepo) Save(ctx context.Context, assessment *domain.RiskAssess
 			var details *string
 			if res.Details != "" {
 				d := res.Details
-				if len(d) > 256 {
-					d = d[:256]
+				runes := []rune(d)
+				if len(runes) > 256 {
+					d = string(runes[:256])
 				}
 				details = &d
 			}
@@ -88,6 +107,16 @@ func (r *AssessmentRepo) Save(ctx context.Context, assessment *domain.RiskAssess
 }
 
 func (r *AssessmentRepo) LoadEnabledRules(ctx context.Context) ([]domain.RiskRule, error) {
+	// Проверка in-memory кэша (TTL 1 минута)
+	r.rulesMu.RLock()
+	if len(r.rulesCache) > 0 && time.Since(r.rulesCacheAt) < 1*time.Minute {
+		cached := make([]domain.RiskRule, len(r.rulesCache))
+		copy(cached, r.rulesCache)
+		r.rulesMu.RUnlock()
+		return cached, nil
+	}
+	r.rulesMu.RUnlock()
+
 	query := `
 		SELECT id, code, name, weight, threshold, is_enabled
 		FROM risk_rule
@@ -107,6 +136,13 @@ func (r *AssessmentRepo) LoadEnabledRules(ctx context.Context) ([]domain.RiskRul
 		}
 		rules = append(rules, rule)
 	}
+
+	// Обновление кэша
+	r.rulesMu.Lock()
+	r.rulesCache = rules
+	r.rulesCacheAt = time.Now()
+	r.rulesMu.Unlock()
+
 	return rules, nil
 }
 

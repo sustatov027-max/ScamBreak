@@ -16,6 +16,7 @@ type VelocityStorage interface {
 	CountInWindow(ctx context.Context, userUID uuid.UUID, window time.Duration) (int, error)
 	RecentAmounts(ctx context.Context, userUID uuid.UUID, limit int) ([]float64, error)
 	MarkProcessed(ctx context.Context, eventID uuid.UUID) (bool, error)
+	ClearProcessed(ctx context.Context, eventID uuid.UUID) error
 }
 
 const (
@@ -137,4 +138,13 @@ func (s *VelocityStore) MarkProcessed(ctx context.Context, eventID uuid.UUID) (b
 		return false, fmt.Errorf("ошибка фиксации event_id в redis: %w", err)
 	}
 	return set, nil
+}
+
+// ClearProcessed удаляет event_id из Redis при сбое обработки для возможности ретрая
+func (s *VelocityStore) ClearProcessed(ctx context.Context, eventID uuid.UUID) error {
+	key := fmt.Sprintf("%s%s", processedPrefix, eventID.String())
+	if err := s.rdb.Del(ctx, key).Err(); err != nil {
+		return fmt.Errorf("ошибка удаления event_id из redis: %w", err)
+	}
+	return nil
 }

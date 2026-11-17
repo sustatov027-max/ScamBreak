@@ -48,10 +48,15 @@ func (r *ActivityChangeRule) Evaluate(c *domain.AnalysisContext) *domain.RuleRes
 	}
 
 	// Расчет среднего количества платежей в час:
-	// Используем время жизни аккаунта (CreatedAt)
-	days := time.Since(c.Profile.CreatedAt).Hours() / 24.0
-	if days < 1 {
-		days = 1
+	// Используем время жизни аккаунта (CreatedAt), если оно задано. Иначе — базовое окно 30 дней.
+	days := 30.0
+	if !c.Profile.CreatedAt.IsZero() {
+		d := time.Since(c.Profile.CreatedAt).Hours() / 24.0
+		if d >= 1 {
+			days = d
+		} else {
+			days = 1
+		}
 	}
 
 	// Среднее в час = (Всего платежей) / (Кол-во дней * 24 часа)
