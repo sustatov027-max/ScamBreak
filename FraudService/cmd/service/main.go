@@ -109,6 +109,7 @@ func run() error {
 		assessmentRepo,
 		scorer,
 		fraudRules,
+		publisher,
 		log,
 	)
 

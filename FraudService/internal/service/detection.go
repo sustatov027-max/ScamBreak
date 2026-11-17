@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/client"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/domain"
 	"github.com/sustatov027-max/ScamBreak/FraudService/internal/repository"
@@ -18,6 +19,7 @@ type DetectionService struct {
 	rulesRepo repository.AssessmentRepository
 	scorer    *RiskScorer
 	rules     []domain.FraudRule
+	publisher client.EventPublisher
 	log       *slog.Logger
 }
 
@@ -27,6 +29,7 @@ func NewDetectionService(
 	rulesRepo repository.AssessmentRepository,
 	scorer *RiskScorer,
 	rules []domain.FraudRule,
+	publisher client.EventPublisher,
 	log *slog.Logger,
 ) *DetectionService {
 	return &DetectionService{
@@ -35,6 +38,7 @@ func NewDetectionService(
 		rulesRepo: rulesRepo,
 		scorer:    scorer,
 		rules:     rules,
+		publisher: publisher,
 		log:       log,
 	}
 }
@@ -58,6 +62,14 @@ func (s *DetectionService) Analyze(ctx context.Context, e domain.PaymentCreatedE
 	// Сохранение результатов в базу
 	if err := s.rulesRepo.Save(ctx, assessment, triggered, e); err != nil {
 		return nil, fmt.Errorf("ошибка сохранения оценки риска: %w", err)
+	}
+
+	// Публикация сообщения в Kafka
+	if err := s.publishResults(ctx, assessment, triggered, e); err != nil {
+		if s.log != nil {
+			s.log.Error("ошибка публикации событий fraud", slog.String("error", err.Error()))
+		}
+		return nil, fmt.Errorf("ошибка публикации результатов анализа: %w", err)
 	}
 
 	return assessment, nil
@@ -174,4 +186,65 @@ func (s *DetectionService) buildContext(ctx context.Context, e domain.PaymentCre
 		RecentAmounts: recentAmounts,
 		Settings:      settings,
 	}, nil
+}
+
+func (s *DetectionService) publishResults(
+	ctx context.Context,
+	assessment *domain.RiskAssessment,
+	triggered []*domain.RuleResult,
+	e domain.PaymentCreatedEvent,
+) error {
+	if s.publisher == nil {
+		return nil
+	}
+
+	now := time.Now().UTC()
+	key := e.PaymentUID.String()
+
+	// Публикация fraud.analysis.completed
+	completedEvent := domain.FraudAnalysisCompletedEvent{
+		EventID:       uuid.New(),
+		PaymentUID:    e.PaymentUID,
+		UserUID:       e.UserUID,
+		Amount:        e.Amount,
+		OperationTime: e.OperationTime,
+		DeviceUID:     e.DeviceUID,
+		IPAddress:     e.IPAddress,
+		RiskScore:     assessment.RiskScore,
+		RiskLevel:     assessment.RiskLevel,
+		Decision:      assessment.Decision,
+		AnalyzedAt:    now,
+	}
+	if err := s.publisher.Publish(ctx, domain.TopicFraudAnalysisCompleted, key, completedEvent); err != nil {
+		return fmt.Errorf("ошибка публикации в топик %s: %w", domain.TopicFraudAnalysisCompleted, err)
+	}
+
+	// Если платёж подозрительный (review или blocked): публикация fraud.suspicious.detected
+	if assessment.Decision == domain.DecisionReview || assessment.Decision == domain.DecisionBlocked {
+		ruleCodes := make([]string, 0, len(triggered))
+		for _, r := range triggered {
+			ruleCodes = append(ruleCodes, r.RuleCode)
+		}
+		// Тип инцидента
+		incidentType := "SUSPICIOUS_PAYMENT"
+		if len(ruleCodes) > 0 {
+			incidentType = ruleCodes[0]
+		}
+		suspiciousEvent := domain.SuspiciousActivityDetectedEvent{
+			EventID:        uuid.New(),
+			PaymentUID:     e.PaymentUID,
+			UserUID:        e.UserUID,
+			Amount:         e.Amount,
+			Currency:       e.Currency,
+			RiskScore:      assessment.RiskScore,
+			RiskLevel:      assessment.RiskLevel,
+			IncidentType:   incidentType,
+			TriggeredRules: ruleCodes,
+			DetectedAt:     now,
+		}
+		if err := s.publisher.Publish(ctx, domain.TopicFraudSuspiciousDetected, key, suspiciousEvent); err != nil {
+			return fmt.Errorf("ошибка публикации в топик %s: %w", domain.TopicFraudSuspiciousDetected, err)
+		}
+	}
+	return nil
 }
