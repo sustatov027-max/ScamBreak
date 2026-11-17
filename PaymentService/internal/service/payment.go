@@ -15,6 +15,7 @@ import (
 
 type PaymentRepository interface {
 	Insert(ctx context.Context, p *domain.Payment) error
+	DeleteByID(ctx context.Context, id int64) error
 	FindByUID(ctx context.Context, uid uuid.UUID) (*domain.Payment, error)
 	FindByIdempotencyKey(ctx context.Context, userUID uuid.UUID, key string) (*domain.Payment, error)
 	Find(ctx context.Context, f dto.PaymentFilter) ([]domain.Payment, int, error)
@@ -77,7 +78,12 @@ func (s *PaymentService) Create(
 	// Формирование и сохранение платежа в БД
 	opTime := time.Now()
 	if req.OperationTime != nil && !req.OperationTime.IsZero() {
-		opTime = *req.OperationTime
+		// Ограничиваем время операции диапазоном +/- 24 часа от текущего момента
+		if time.Since(*req.OperationTime) > 24*time.Hour || req.OperationTime.Sub(time.Now()) > 24*time.Hour {
+			opTime = time.Now()
+		} else {
+			opTime = *req.OperationTime
+		}
 	}
 
 	payment := &domain.Payment{
@@ -97,6 +103,20 @@ func (s *PaymentService) Create(
 	}
 
 	if err := s.payments.Insert(ctx, payment); err != nil {
+		if errors.Is(err, domain.ErrPaymentAlreadyExists) {
+			// Параллельный запрос с тем же idempotency key уже успел вставить запись.
+			// Считываем её из БД для сверки параметров и возврата штатного ответа.
+			existing, getErr := s.payments.FindByIdempotencyKey(ctx, userUID, key)
+			if getErr == nil && existing != nil {
+				if existing.Amount == req.Amount &&
+					existing.Currency == req.Currency &&
+					existing.OperationType == req.OperationType &&
+					existing.DeviceUID == req.DeviceUID {
+					return toPaymentResponse(existing), false, nil
+				}
+				return nil, false, domain.ErrIdempotencyConflict
+			}
+		}
 		return nil, false, fmt.Errorf("ошибка сохранения платежа: %w", err)
 	}
 
@@ -115,7 +135,8 @@ func (s *PaymentService) Create(
 	}
 
 	if err := s.publisher.Publish(ctx, "payment.created", payment.UID.String(), event); err != nil {
-		// Логируем или возвращаем ошибку публикации
+		// Компенсирующее действие: удаляем созданный платеж при сбое публикации
+		_ = s.payments.DeleteByID(ctx, payment.ID)
 		return nil, false, fmt.Errorf("ошибка публикации события payment.created: %w", err)
 	}
 

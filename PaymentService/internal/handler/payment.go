@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"net"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -68,6 +69,16 @@ func (h *PaymentHandler) CreatePayment(c *gin.Context) {
 		return
 	}
 
+	// Валидация IP-адреса, если передан клиентом, либо извлечение из сетевого подключения
+	if req.IPAddress != "" {
+		if net.ParseIP(req.IPAddress) == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "некорректный формат ip_address"})
+			return
+		}
+	} else {
+		req.IPAddress = c.ClientIP()
+	}
+
 	// Если передан user_uid в теле, он должен совпадать с user_uid из токена
 	if req.UserUID != nil && *req.UserUID != userUID {
 		c.JSON(http.StatusForbidden, gin.H{"error": domain.ErrUserUIDMismatch.Error()})
@@ -99,6 +110,16 @@ func (h *PaymentHandler) CreateExternalPayment(c *gin.Context) {
 		return
 	}
 
+	// Валидация IP-адреса
+	if req.IPAddress != "" {
+		if net.ParseIP(req.IPAddress) == nil {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "некорректный формат ip_address"})
+			return
+		}
+	} else {
+		req.IPAddress = c.ClientIP()
+	}
+
 	// Для внешней системы user_uid обязателен в теле
 	if req.UserUID == nil || *req.UserUID == uuid.Nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "поле user_uid обязательно для внешней системы"})
@@ -121,7 +142,7 @@ func (h *PaymentHandler) CreateExternalPayment(c *gin.Context) {
 
 func (h *PaymentHandler) handleCreateError(c *gin.Context, err error) {
 	switch {
-	case errors.Is(err, domain.ErrIdempotencyConflict):
+	case errors.Is(err, domain.ErrIdempotencyConflict), errors.Is(err, domain.ErrPaymentAlreadyExists):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error()})
 	case errors.Is(err, domain.ErrUserNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": err.Error()})

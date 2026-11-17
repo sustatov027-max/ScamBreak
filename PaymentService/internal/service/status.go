@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -26,8 +27,17 @@ func NewStatusService(payments PaymentStatusRepository, publisher client.EventPu
 	}
 }
 
-// resolveStatus маппинг статусов
-func (s *StatusService) resolveStatus(level domain.RiskLevel) domain.PaymentStatus {
+// resolveStatus маппинг статусов с приоритетом вердикта Decision
+func (s *StatusService) resolveStatus(decision string, level domain.RiskLevel) domain.PaymentStatus {
+	switch strings.ToLower(strings.TrimSpace(decision)) {
+	case "approved":
+		return domain.PaymentStatusApproved
+	case "review":
+		return domain.PaymentStatusReview
+	case "blocked":
+		return domain.PaymentStatusBlocked
+	}
+
 	switch level {
 	case domain.RiskLevelLow:
 		return domain.PaymentStatusApproved
@@ -41,7 +51,7 @@ func (s *StatusService) resolveStatus(level domain.RiskLevel) domain.PaymentStat
 }
 
 func (s *StatusService) ApplyAnalysisResult(ctx context.Context, e domain.FraudAnalysisCompletedEvent) error {
-	newStatus := s.resolveStatus(e.RiskLevel)
+	newStatus := s.resolveStatus(e.Decision, e.RiskLevel)
 
 	// Атомарное обновление в БД
 	oldStatus, err := s.payments.ApplyAnalysis(ctx, e.PaymentUID, e.RiskScore, e.RiskLevel, newStatus)
@@ -49,10 +59,13 @@ func (s *StatusService) ApplyAnalysisResult(ctx context.Context, e domain.FraudA
 		return fmt.Errorf("ошибка применения результатов анализа: %w", err)
 	}
 
-	// Идемпотентность: событие в Kafka отправляем только при реальном первичном переходе из PENDING
-	if oldStatus == domain.PaymentStatusPending && oldStatus != newStatus {
+	// Отправляем событие при первичном переходе из PENDING, либо при ретрае (когда статус уже обновлен, но публикация ранее сорвалась)
+	if oldStatus == domain.PaymentStatusPending || (oldStatus == newStatus && oldStatus != domain.PaymentStatusPending) {
+		// Детерминированный EventID для безопасной дедупликации downstream-консьюмерами
+		deterministicID := uuid.NewSHA1(uuid.NameSpaceOID, []byte(e.PaymentUID.String()+string(newStatus)))
+
 		event := domain.PaymentStatusChangedEvent{
-			EventID:    uuid.New(),
+			EventID:    deterministicID,
 			PaymentUID: e.PaymentUID,
 			UserUID:    e.UserUID,
 			OldStatus:  oldStatus,

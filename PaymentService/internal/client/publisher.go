@@ -23,7 +23,7 @@ func NewKafkaPublisher(brokers []string) *KafkaPublisher {
 	publisher := &KafkaPublisher{
 		writer: &kafka.Writer{
 			Addr:         kafka.TCP(brokers...),
-			Balancer:     &kafka.LeastBytes{},
+			Balancer:     &kafka.Hash{},
 			RequiredAcks: kafka.RequireOne,
 			Async:        false,
 		},

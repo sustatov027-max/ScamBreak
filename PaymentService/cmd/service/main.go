@@ -167,17 +167,6 @@ func run() error {
 		return nil
 	})
 
-	// Остановка kafka-consumer
-	sm.Register("fraud-consumer", func(_ context.Context) error {
-		cancelConsumer()
-		return fraudConsumer.Close()
-	})
-
-	// Остановка kafka-publisher
-	sm.Register("kafka-publisher", func(_ context.Context) error {
-		return publisher.Close()
-	})
-
 	// Остановка gRPC client
 	sm.Register("gRPC-client", func(_ context.Context) error {
 		err := userClient.Close()
@@ -186,6 +175,17 @@ func run() error {
 		}
 
 		return nil
+	})
+
+	// Остановка kafka-publisher (остается открытым, пока консьюмер завершает in-flight сообщения)
+	sm.Register("kafka-publisher", func(_ context.Context) error {
+		return publisher.Close()
+	})
+
+	// Остановка kafka-consumer (останавливается перед закрытием publisher)
+	sm.Register("fraud-consumer", func(_ context.Context) error {
+		cancelConsumer()
+		return fraudConsumer.Close()
 	})
 
 	// Остановка HTTP-сервера (выполнится первой в LIFO)

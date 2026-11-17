@@ -95,6 +95,16 @@ func (r *PaymentRepository) Insert(ctx context.Context, p *domain.Payment) error
 	return nil
 }
 
+// DeleteByID удаляет платеж по id
+func (r *PaymentRepository) DeleteByID(ctx context.Context, id int64) error {
+	query := `DELETE FROM payment WHERE id = $1;`
+	_, err := r.db.Exec(ctx, query, id)
+	if err != nil {
+		return fmt.Errorf("ошибка удаления платежа: %w", err)
+	}
+	return nil
+}
+
 // FindByUID находит платёж по его публичному идентификатору UID
 func (r *PaymentRepository) FindByUID(ctx context.Context, uid uuid.UUID) (*domain.Payment, error) {
 	query := `
@@ -301,7 +311,7 @@ func (r *PaymentRepository) Find(ctx context.Context, f dto.PaymentFilter) ([]do
 			created_at
 		FROM payment
 		%s
-		ORDER BY created_at DESC
+		ORDER BY created_at DESC, id DESC
 		LIMIT $%d OFFSET $%d;
 	`, whereClause, argIdx, argIdx+1)
 
